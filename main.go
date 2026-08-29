@@ -77,7 +77,7 @@ func useColor(noColor bool) bool {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [REPO]
+	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
 public. Lists every author/committer identity in the history and flags
@@ -159,7 +159,7 @@ func isPersonalEmail(email string) bool {
 }
 
 func collectIdentities(repo string) ([]identity, error) {
-	fields := []string{"%an", "%ae", "%cn", "%ce", "%ad"}
+	fields := []string{"%an", "%ae", "%ad", "%cn", "%ce", "%cd"}
 	// --branches --tags --remotes, not --all: keep local-only refs/stash and
 	// refs/notes out of the footprint.
 	out, err := gitRun(repo, "log", "HEAD", "--branches", "--tags", "--remotes",
@@ -198,11 +198,11 @@ func collectIdentities(repo string) ([]identity, error) {
 
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, fieldSep)
-		if len(f) < 5 {
+		if len(f) < 6 {
 			continue
 		}
-		note(f[0], f[1], f[4], true)
-		note(f[2], f[3], f[4], false)
+		note(f[0], f[1], f[2], true)
+		note(f[3], f[4], f[5], false)
 	}
 
 	ids := make([]identity, 0, len(order))
@@ -221,14 +221,12 @@ func buildFootprint(repo string) (footprint, error) {
 		return footprint{}, err
 	}
 
-	matchedEmail := false
-	for i := range ids {
-		if youEmail != "" && ids[i].email == youEmail {
-			ids[i].isYou = true
-			matchedEmail = true
+	switch {
+	case youEmail != "":
+		for i := range ids {
+			ids[i].isYou = ids[i].email == youEmail
 		}
-	}
-	if !matchedEmail && youEmail == "" && youName != "" {
+	case youName != "":
 		for i := range ids {
 			ids[i].isYou = ids[i].name == youName
 		}

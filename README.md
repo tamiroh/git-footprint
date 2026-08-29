@@ -13,7 +13,7 @@ Needs Go 1.23+ and `git`.
 ## Usage
 
 ```sh
-git-footprint [--no-color] [REPO]
+git-footprint [--no-color] [--version] [REPO]
 ```
 
 `REPO` defaults to the current directory.
