@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/rwcarlsen/goexif/exif"
 )
 
 const version = "0.1.0"
@@ -64,7 +67,13 @@ func run() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	render(os.Stdout, fp, root, useColor(*noColor))
+
+	images, err := scanImages(root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "image scan skipped:", err)
+	}
+
+	render(os.Stdout, fp, images, root, useColor(*noColor))
 	return 0
 }
 
@@ -80,8 +89,9 @@ func usage() {
 	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
-public. Lists every author/committer identity in the history and flags
-personal email addresses.
+public. Lists every author/committer identity in the history, flags personal
+email addresses, and reports EXIF metadata (location, creator, camera) in any
+committed image.
 
 REPO defaults to the current directory.
 `)
@@ -89,8 +99,12 @@ REPO defaults to the current directory.
 
 // git
 
+func gitBytes(repo string, args ...string) ([]byte, error) {
+	return exec.Command("git", append([]string{"-C", repo}, args...)...).Output()
+}
+
 func gitRun(repo string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).Output()
+	out, err := gitBytes(repo, args...)
 	return string(out), err
 }
 
@@ -247,6 +261,136 @@ func buildFootprint(repo string) (footprint, error) {
 	return footprint{totalCommits: commits, identities: ids}, nil
 }
 
+// images
+
+var imageExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".jpe": true, ".tif": true, ".tiff": true,
+}
+
+type imageMeta struct {
+	path    string
+	byName  string // author of the commit that introduced this blob
+	byEmail string
+	gps     string // "lat, long"
+	creator string // Artist or Copyright
+	camera  string // "Make Model"
+	taken   string // "2006-01-02 15:04:05"
+}
+
+func (m imageMeta) revealing() bool { return m.gps != "" || m.creator != "" }
+
+func (m imageMeta) empty() bool {
+	return m.gps == "" && m.creator == "" && m.camera == "" && m.taken == ""
+}
+
+// scanImages walks every blob ever added or changed, and for image blobs pulls
+// EXIF out, tagging each with the author of the commit that introduced it.
+func scanImages(repo string) ([]imageMeta, error) {
+	const hdr = "\x1e"
+	out, err := gitRun(repo, "log", "--branches", "--tags", "--remotes",
+		"--reverse", "--no-renames", "--no-abbrev", "--diff-filter=AM",
+		"--no-color", "--date=short",
+		"--format="+hdr+"%an"+fieldSep+"%ae"+fieldSep+"%ad", "--raw")
+	if err != nil {
+		return nil, err
+	}
+
+	seen := map[string]bool{}
+	var name, email string
+	var found []imageMeta
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, hdr):
+			if f := strings.Split(line[len(hdr):], fieldSep); len(f) >= 2 {
+				name, email = f[0], strings.ToLower(f[1])
+			}
+		case strings.HasPrefix(line, ":"):
+			meta, path, ok := strings.Cut(line, "\t")
+			if !ok {
+				continue
+			}
+			cols := strings.Fields(meta)
+			if len(cols) < 5 {
+				continue
+			}
+			sha := cols[3]
+			if seen[sha] || !imageExts[strings.ToLower(filepath.Ext(path))] {
+				continue
+			}
+			seen[sha] = true
+
+			blob, err := gitBytes(repo, "cat-file", "-p", sha)
+			if err != nil || len(blob) > 64<<20 {
+				continue
+			}
+			if m := readEXIF(path, blob); !m.empty() {
+				m.byName, m.byEmail = name, email
+				found = append(found, m)
+			}
+		}
+	}
+
+	sort.SliceStable(found, func(i, j int) bool {
+		if found[i].revealing() != found[j].revealing() {
+			return found[i].revealing()
+		}
+		return found[i].path < found[j].path
+	})
+	return found, nil
+}
+
+func readEXIF(path string, blob []byte) (m imageMeta) {
+	m.path = path
+	defer func() { _ = recover() }() // goexif can panic on hostile input
+
+	x, err := exif.Decode(bytes.NewReader(blob))
+	if err != nil {
+		return m
+	}
+
+	if lat, long, err := x.LatLong(); err == nil && (lat != 0 || long != 0) {
+		m.gps = fmt.Sprintf("%.5f, %.5f", lat, long)
+	}
+	for _, name := range []exif.FieldName{exif.Artist, exif.Copyright} {
+		if v := exifStr(x, name); v != "" {
+			m.creator = v
+			break
+		}
+	}
+	m.camera = cameraName(exifStr(x, exif.Make), exifStr(x, exif.Model))
+	if t, err := x.DateTime(); err == nil {
+		m.taken = t.Format("2006-01-02 15:04:05")
+	}
+	return m
+}
+
+func cameraName(mk, model string) string {
+	mk, model = strings.TrimSpace(mk), strings.TrimSpace(model)
+	switch {
+	case mk == "":
+		return model
+	case model == "":
+		return mk
+	}
+	if brand := strings.Fields(mk); len(brand) > 0 &&
+		strings.HasPrefix(strings.ToLower(model), strings.ToLower(brand[0])) {
+		return model // model already carries the maker, e.g. "NIKON D2H"
+	}
+	return mk + " " + model
+}
+
+func exifStr(x *exif.Exif, name exif.FieldName) string {
+	tag, err := x.Get(name)
+	if err != nil {
+		return ""
+	}
+	s, err := tag.StringVal()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(s, "\x00 ")
+}
+
 // report
 
 const (
@@ -308,7 +452,7 @@ func dateRange(id identity) string {
 	}
 }
 
-func render(w io.Writer, fp footprint, repo string, color bool) {
+func render(w io.Writer, fp footprint, images []imageMeta, repo string, color bool) {
 	pt := painter{w: w, color: color}
 
 	pt.put("git-footprint\n", ansiBold)
@@ -316,7 +460,13 @@ func render(w io.Writer, fp footprint, repo string, color bool) {
 	pt.put("  " + plural(fp.totalCommits, "$1 commit", "$1 commits") + " across " +
 		plural(len(fp.identities), "$1 identity", "$1 identities") + "\n\n")
 
-	personal := 0
+	byWho := map[[2]string][]imageMeta{}
+	for _, m := range images {
+		k := [2]string{m.byName, m.byEmail}
+		byWho[k] = append(byWho[k], m)
+	}
+
+	personal, revealing := 0, 0
 	for _, id := range fp.identities {
 		youColor := ""
 		if id.isYou {
@@ -338,6 +488,16 @@ func render(w io.Writer, fp footprint, repo string, color bool) {
 			personal++
 			pt.put("    ⚠ personal address ("+domainOf(id.email)+")\n", ansiYellow)
 		}
+
+		k := [2]string{id.name, id.email}
+		for _, m := range byWho[k] {
+			if m.revealing() {
+				revealing++
+			}
+			imageLine(pt, m)
+		}
+		delete(byWho, k)
+
 		pt.put("\n")
 	}
 
@@ -347,4 +507,49 @@ func render(w io.Writer, fp footprint, repo string, color bool) {
 		pt.put(plural(personal, "$1 personal address", "$1 personal addresses")+
 			" in the published history\n", ansiYellow)
 	}
+
+	var orphan []imageMeta
+	for _, ms := range byWho {
+		orphan = append(orphan, ms...)
+	}
+	if len(orphan) > 0 {
+		sort.SliceStable(orphan, func(i, j int) bool { return orphan[i].path < orphan[j].path })
+		pt.put("\nimages not tied to a listed identity\n", ansiBold)
+		for _, m := range orphan {
+			if m.revealing() {
+				revealing++
+			}
+			imageLine(pt, m)
+		}
+	}
+
+	if len(images) > 0 {
+		s := plural(len(images), "$1 image carries EXIF metadata", "$1 images carry EXIF metadata")
+		if revealing > 0 {
+			pt.put(s+fmt.Sprintf(" (%d reveal a location or creator)\n", revealing), ansiYellow)
+		} else {
+			pt.put(s + "\n")
+		}
+	}
+}
+
+func imageLine(pt painter, m imageMeta) {
+	marker, code := "● ", ""
+	if m.revealing() {
+		marker, code = "⚠ ", ansiYellow
+	}
+	var parts []string
+	if m.gps != "" {
+		parts = append(parts, "location "+m.gps)
+	}
+	if m.creator != "" {
+		parts = append(parts, "creator "+m.creator)
+	}
+	if m.camera != "" {
+		parts = append(parts, m.camera)
+	}
+	if m.taken != "" {
+		parts = append(parts, m.taken)
+	}
+	pt.put("    "+marker+m.path+"  ·  "+strings.Join(parts, "  ·  ")+"\n", code)
 }
