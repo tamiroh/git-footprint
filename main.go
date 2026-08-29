@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/rwcarlsen/goexif/exif"
@@ -68,12 +70,12 @@ func run() int {
 		return 2
 	}
 
-	images, err := scanImages(root)
+	scan, err := scanBlobs(root)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "image scan skipped:", err)
+		fmt.Fprintln(os.Stderr, "blob scan incomplete:", err)
 	}
 
-	render(os.Stdout, fp, images, root, useColor(*noColor))
+	render(os.Stdout, fp, scan, root, useColor(*noColor))
 	return 0
 }
 
@@ -98,13 +100,68 @@ REPO defaults to the current directory.
 
 // git
 
-func gitBytes(repo string, args ...string) ([]byte, error) {
-	return exec.Command("git", append([]string{"-C", repo}, args...)...).Output()
+func gitRun(repo string, args ...string) (string, error) {
+	out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).Output()
+	return string(out), err
 }
 
-func gitRun(repo string, args ...string) (string, error) {
-	out, err := gitBytes(repo, args...)
-	return string(out), err
+// catFileBatch streams the contents of the given blobs through one
+// `git cat-file --batch` process, calling fn for each.
+func catFileBatch(repo string, shas []string, fn func(sha string, content []byte)) error {
+	cmd := exec.Command("git", "-C", repo, "cat-file", "--batch")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	go func() {
+		defer stdin.Close()
+		w := bufio.NewWriter(stdin)
+		for _, s := range shas {
+			if _, err := fmt.Fprintln(w, s); err != nil {
+				return
+			}
+		}
+		w.Flush()
+	}()
+
+	const maxBlob = 64 << 20
+	br := bufio.NewReaderSize(stdout, 1<<16)
+	for range shas {
+		header, err := br.ReadString('\n')
+		if err != nil {
+			break
+		}
+		cols := strings.Fields(header)
+		if len(cols) < 3 { // "<sha> missing"
+			continue
+		}
+		size, err := strconv.Atoi(cols[2])
+		if err != nil {
+			continue
+		}
+		if size > maxBlob {
+			if _, err := br.Discard(size + 1); err != nil {
+				break
+			}
+			continue
+		}
+		buf := make([]byte, size)
+		if _, err := io.ReadFull(br, buf); err != nil {
+			break
+		}
+		br.ReadByte() // trailing newline
+		fn(cols[0], buf)
+	}
+	io.Copy(io.Discard, br) // let git and the writer goroutine finish
+	return cmd.Wait()
 }
 
 func gitTry(repo string, args ...string) string {
@@ -235,7 +292,7 @@ func buildFootprint(repo string) (footprint, error) {
 	return footprint{totalCommits: commits, identities: ids}, nil
 }
 
-// images
+// blobs
 
 var imageExts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".jpe": true, ".tif": true, ".tiff": true,
@@ -257,21 +314,29 @@ func (m imageMeta) empty() bool {
 	return m.gps == "" && m.creator == "" && m.camera == "" && m.taken == ""
 }
 
-// scanImages walks every blob ever added or changed, and for image blobs pulls
-// EXIF out, tagging each with the author of the commit that introduced it.
-func scanImages(repo string) ([]imageMeta, error) {
+type blobScan struct {
+	images      []imageMeta
+	uninspected map[string]int // extension -> count of binary blobs nothing was read from
+}
+
+type blobRef struct {
+	path, byName, byEmail string
+}
+
+// scanBlobs reads every blob ever added or changed, pulls EXIF from images, and
+// tallies the binary blobs it had nothing to say about.
+func scanBlobs(repo string) (blobScan, error) {
 	const hdr = "\x1e"
 	out, err := gitRun(repo, "log", "--branches", "--tags", "--remotes",
 		"--reverse", "--no-renames", "--no-abbrev", "--diff-filter=AM",
-		"--no-color", "--date=short",
-		"--format="+hdr+"%an"+fieldSep+"%ae"+fieldSep+"%ad", "--raw")
+		"--no-color", "--format="+hdr+"%an"+fieldSep+"%ae", "--raw")
 	if err != nil {
-		return nil, err
+		return blobScan{}, err
 	}
 
-	seen := map[string]bool{}
+	bySha := map[string]blobRef{}
+	var shas []string
 	var name, email string
-	var found []imageMeta
 	for _, line := range strings.Split(out, "\n") {
 		switch {
 		case strings.HasPrefix(line, hdr):
@@ -288,29 +353,45 @@ func scanImages(repo string) ([]imageMeta, error) {
 				continue
 			}
 			sha := cols[3]
-			if seen[sha] || !imageExts[strings.ToLower(filepath.Ext(path))] {
+			if _, dup := bySha[sha]; dup || strings.Trim(sha, "0") == "" {
 				continue
 			}
-			seen[sha] = true
-
-			blob, err := gitBytes(repo, "cat-file", "-p", sha)
-			if err != nil || len(blob) > 64<<20 {
-				continue
-			}
-			if m := readEXIF(path, blob); !m.empty() {
-				m.byName, m.byEmail = name, email
-				found = append(found, m)
-			}
+			bySha[sha] = blobRef{path, name, email}
+			shas = append(shas, sha)
 		}
 	}
 
-	sort.SliceStable(found, func(i, j int) bool {
-		if found[i].revealing() != found[j].revealing() {
-			return found[i].revealing()
+	scan := blobScan{uninspected: map[string]int{}}
+	err = catFileBatch(repo, shas, func(sha string, content []byte) {
+		if !looksBinary(content) {
+			return
 		}
-		return found[i].path < found[j].path
+		ref := bySha[sha]
+		ext := strings.ToLower(filepath.Ext(ref.path))
+		if imageExts[ext] {
+			if m := readEXIF(ref.path, content); !m.empty() {
+				m.byName, m.byEmail = ref.byName, ref.byEmail
+				scan.images = append(scan.images, m)
+				return
+			}
+		}
+		scan.uninspected[ext]++
 	})
-	return found, nil
+
+	sort.SliceStable(scan.images, func(i, j int) bool {
+		if scan.images[i].revealing() != scan.images[j].revealing() {
+			return scan.images[i].revealing()
+		}
+		return scan.images[i].path < scan.images[j].path
+	})
+	return scan, err
+}
+
+func looksBinary(b []byte) bool {
+	if len(b) > 8000 {
+		b = b[:8000]
+	}
+	return bytes.IndexByte(b, 0) >= 0
 }
 
 func readEXIF(path string, blob []byte) (m imageMeta) {
@@ -370,6 +451,7 @@ func exifStr(x *exif.Exif, name exif.FieldName) string {
 const (
 	ansiReset  = "\x1b[0m"
 	ansiBold   = "\x1b[1m"
+	ansiDim    = "\x1b[2m"
 	ansiGreen  = "\x1b[32m"
 	ansiYellow = "\x1b[33m"
 )
@@ -426,8 +508,9 @@ func dateRange(id identity) string {
 	}
 }
 
-func render(w io.Writer, fp footprint, images []imageMeta, repo string, color bool) {
+func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 	pt := painter{w: w, color: color}
+	images := scan.images
 
 	pt.put("git-footprint\n", ansiBold)
 	pt.put("  " + repo + "\n")
@@ -488,11 +571,51 @@ func render(w io.Writer, fp footprint, images []imageMeta, repo string, color bo
 	if len(images) > 0 {
 		s := plural(len(images), "$1 image carries EXIF metadata", "$1 images carry EXIF metadata")
 		if revealing > 0 {
-			pt.put(s+fmt.Sprintf(" (%d reveal a location or creator)\n", revealing), ansiYellow)
+			pt.put(s+" ("+plural(revealing, "$1 reveals", "$1 reveal")+
+				" a location or creator)\n", ansiYellow)
 		} else {
 			pt.put(s + "\n")
 		}
 	}
+
+	if n := total(scan.uninspected); n > 0 {
+		pt.put(plural(n, "$1 other binary file not inspected", "$1 other binary files not inspected")+
+			"  ·  "+extBreakdown(scan.uninspected)+"\n", ansiDim)
+	}
+}
+
+func total(m map[string]int) int {
+	n := 0
+	for _, v := range m {
+		n += v
+	}
+	return n
+}
+
+func extBreakdown(m map[string]int) string {
+	type kv struct {
+		ext string
+		n   int
+	}
+	kvs := make([]kv, 0, len(m))
+	for e, n := range m {
+		kvs = append(kvs, kv{e, n})
+	}
+	sort.Slice(kvs, func(i, j int) bool {
+		if kvs[i].n != kvs[j].n {
+			return kvs[i].n > kvs[j].n
+		}
+		return kvs[i].ext < kvs[j].ext
+	})
+	parts := make([]string, len(kvs))
+	for i, k := range kvs {
+		ext := k.ext
+		if ext == "" {
+			ext = "(no ext)"
+		}
+		parts[i] = fmt.Sprintf("%s ×%d", ext, k.n)
+	}
+	return strings.Join(parts, "  ·  ")
 }
 
 func imageLine(pt painter, m imageMeta) {
