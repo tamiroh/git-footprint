@@ -89,9 +89,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
-public. Lists every author/committer identity in the history, flags personal
-email addresses, and reports EXIF metadata (location, creator, camera) in any
-committed image.
+public. Lists every author/committer identity in the history and the EXIF
+metadata (location, creator, camera) of any image each of them committed.
 
 REPO defaults to the current directory.
 `)
@@ -132,20 +131,6 @@ func repoRoot(path string) (string, error) {
 
 const fieldSep = "\x1f" // ASCII Unit Separator, used to split git-log --format fields
 
-var personalDomains = map[string]bool{
-	"gmail.com": true, "googlemail.com": true, "yahoo.com": true,
-	"yahoo.co.jp": true, "ymail.com": true, "outlook.com": true,
-	"outlook.jp": true, "hotmail.com": true, "hotmail.co.jp": true,
-	"live.com": true, "live.jp": true, "icloud.com": true, "me.com": true,
-	"mac.com": true, "proton.me": true, "protonmail.com": true, "pm.me": true,
-	"aol.com": true, "gmx.com": true, "gmx.net": true, "zoho.com": true,
-	"yandex.com": true, "fastmail.com": true, "hey.com": true,
-	"tutanota.com": true, "docomo.ne.jp": true, "ezweb.ne.jp": true,
-	"au.com": true, "softbank.ne.jp": true, "i.softbank.jp": true,
-	"nifty.com": true, "ocn.ne.jp": true, "biglobe.ne.jp": true,
-	"excite.co.jp": true, "so-net.ne.jp": true,
-}
-
 type identity struct {
 	name             string
 	email            string
@@ -159,17 +144,6 @@ type identity struct {
 type footprint struct {
 	totalCommits int
 	identities   []identity
-}
-
-func domainOf(email string) string {
-	if i := strings.LastIndexByte(email, '@'); i >= 0 {
-		return strings.ToLower(email[i+1:])
-	}
-	return ""
-}
-
-func isPersonalEmail(email string) bool {
-	return personalDomains[domainOf(email)]
 }
 
 func collectIdentities(repo string) ([]identity, error) {
@@ -466,7 +440,7 @@ func render(w io.Writer, fp footprint, images []imageMeta, repo string, color bo
 		byWho[k] = append(byWho[k], m)
 	}
 
-	personal, revealing := 0, 0
+	revealing := 0
 	for _, id := range fp.identities {
 		youColor := ""
 		if id.isYou {
@@ -484,11 +458,6 @@ func render(w io.Writer, fp footprint, images []imageMeta, repo string, color bo
 		}
 		pt.put(line + "\n")
 
-		if isPersonalEmail(id.email) {
-			personal++
-			pt.put("    ⚠ personal address ("+domainOf(id.email)+")\n", ansiYellow)
-		}
-
 		k := [2]string{id.name, id.email}
 		for _, m := range byWho[k] {
 			if m.revealing() {
@@ -499,13 +468,6 @@ func render(w io.Writer, fp footprint, images []imageMeta, repo string, color bo
 		delete(byWho, k)
 
 		pt.put("\n")
-	}
-
-	if personal == 0 {
-		pt.put("no personal addresses in the published history\n", ansiGreen)
-	} else {
-		pt.put(plural(personal, "$1 personal address", "$1 personal addresses")+
-			" in the published history\n", ansiYellow)
 	}
 
 	var orphan []imageMeta
