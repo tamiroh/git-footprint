@@ -18,7 +18,7 @@ type Identity struct {
 	CommitterCommits int
 	FirstDate        string
 	LastDate         string
-	IsYou            bool
+	Bot              bool // name ends in "[bot]" or commits come from a CI/web service
 }
 
 type Footprint struct {
@@ -80,35 +80,29 @@ func collect(repo string) ([]Identity, error) {
 	return ids, nil
 }
 
-// Build assembles the identity footprint, sorted with "you" first and then by
-// total commits. "You" is the identity whose email exactly matches
-// git config user.email (or, if that is unset, whose name matches user.name).
+// Build assembles the identity footprint. It makes no claim about which
+// identities belong to the same person or to you: every distinct (name, email)
+// is one entry, sorted by name then email so a person's aliases sit adjacent.
+// Bot identities sort last.
 func Build(repo string) (Footprint, error) {
-	youEmail := strings.ToLower(gitcmd.Try(repo, "config", "user.email"))
-	youName := gitcmd.Try(repo, "config", "user.name")
-
 	ids, err := collect(repo)
 	if err != nil {
 		return Footprint{}, err
 	}
 
-	switch {
-	case youEmail != "":
-		for i := range ids {
-			ids[i].IsYou = ids[i].Email == youEmail
-		}
-	case youName != "":
-		for i := range ids {
-			ids[i].IsYou = ids[i].Name == youName
-		}
+	for i := range ids {
+		ids[i].Bot = looksBot(ids[i].Name, ids[i].Email)
 	}
 
 	sort.SliceStable(ids, func(i, j int) bool {
-		if ids[i].IsYou != ids[j].IsYou {
-			return ids[i].IsYou
+		a, b := ids[i], ids[j]
+		if a.Bot != b.Bot {
+			return !a.Bot
 		}
-		return ids[i].AuthorCommits+ids[i].CommitterCommits >
-			ids[j].AuthorCommits+ids[j].CommitterCommits
+		if an, bn := strings.ToLower(a.Name), strings.ToLower(b.Name); an != bn {
+			return an < bn
+		}
+		return a.Email < b.Email
 	})
 
 	commits := 0
@@ -116,4 +110,14 @@ func Build(repo string) (Footprint, error) {
 		commits += id.AuthorCommits
 	}
 	return Footprint{TotalCommits: commits, Identities: ids}, nil
+}
+
+// looksBot reports whether an identity is lexically a bot or service account:
+// GitHub appends "[bot]" to bot account names, web-UI commits are committed by
+// "GitHub <noreply@github.com>", and merges by "web-flow". No guess about
+// people is made.
+func looksBot(name, email string) bool {
+	return strings.HasSuffix(name, "[bot]") ||
+		name == "web-flow" ||
+		email == "noreply@github.com"
 }

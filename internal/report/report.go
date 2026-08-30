@@ -16,7 +16,6 @@ const (
 	ansiReset  = "\x1b[0m"
 	ansiBold   = "\x1b[1m"
 	ansiDim    = "\x1b[2m"
-	ansiGreen  = "\x1b[32m"
 	ansiYellow = "\x1b[33m"
 )
 
@@ -57,15 +56,14 @@ func plural(n int, one, many string) string {
 
 func commitCount(id identity.Identity) string {
 	switch {
-	case id.AuthorCommits == 0:
-		return plural(id.CommitterCommits, "$1 commit", "$1 commits") + " (as committer only)"
-	case id.CommitterCommits == 0:
-		return plural(id.AuthorCommits, "$1 commit", "$1 commits") + " (as author only)"
-	case id.AuthorCommits != id.CommitterCommits:
-		return plural(id.AuthorCommits, "$1 commit", "$1 commits") +
-			fmt.Sprintf(" (%d as committer)", id.CommitterCommits)
-	default:
+	case id.AuthorCommits == id.CommitterCommits:
 		return plural(id.AuthorCommits, "$1 commit", "$1 commits")
+	case id.CommitterCommits == 0:
+		return fmt.Sprintf("authored %d", id.AuthorCommits)
+	case id.AuthorCommits == 0:
+		return fmt.Sprintf("committed %d", id.CommitterCommits)
+	default:
+		return fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
 	}
 }
 
@@ -148,21 +146,17 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 
 	revealing := 0
 	for _, id := range fp.Identities {
-		youColor := ""
-		if id.IsYou {
-			youColor = ansiGreen
+		nameCode, code := ansiBold, ""
+		if id.Bot {
+			nameCode, code = ansiDim, ansiDim
 		}
-		pt.put("● ", ansiBold, youColor)
-		if id.IsYou {
-			pt.put("you  ", ansiBold, ansiGreen)
-		}
-		pt.put(id.Name+" <"+id.Email+">\n", ansiBold)
+		pt.put("● "+id.Name+" <"+id.Email+">\n", nameCode)
 
 		line := "    " + commitCount(id)
 		if dr := dateRange(id); dr != "" {
 			line += "  ·  " + dr
 		}
-		pt.put(line + "\n")
+		pt.put(line+"\n", code)
 
 		k := [2]string{id.Name, id.Email}
 		for _, m := range byWho[k] {
