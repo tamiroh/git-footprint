@@ -3,9 +3,7 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -17,8 +15,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/evanoberholster/imagemeta"
 	"github.com/tamiroh/git-footprint/internal/dsstore"
+	"github.com/tamiroh/git-footprint/internal/exif"
+	"github.com/tamiroh/git-footprint/internal/gitcmd"
+	"github.com/tamiroh/git-footprint/internal/identity"
 )
 
 const version = "0.1.0"
@@ -55,21 +55,21 @@ func run() int {
 		return 2
 	}
 
-	if !isRepo(repo) {
+	if !gitcmd.IsRepo(repo) {
 		fmt.Fprintf(os.Stderr, "%s is not a git repository\n", repo)
 		return 2
 	}
-	root, err := repoRoot(repo)
+	root, err := gitcmd.Root(repo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	if !hasCommits(root) {
+	if !gitcmd.HasCommits(root) {
 		fmt.Fprintln(os.Stderr, "repository has no commits yet")
 		return 2
 	}
 
-	fp, err := buildFootprint(root)
+	fp, err := identity.Build(root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -137,224 +137,16 @@ REPO defaults to the current directory.
 `)
 }
 
-// git
-
-func gitRun(repo string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).Output()
-	return string(out), err
-}
-
-// catFileBatch streams the contents of the given blobs through one
-// `git cat-file --batch` process, calling fn for each.
-func catFileBatch(repo string, shas []string, fn func(sha string, content []byte)) error {
-	cmd := exec.Command("git", "-C", repo, "cat-file", "--batch")
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	go func() {
-		defer stdin.Close()
-		w := bufio.NewWriter(stdin)
-		for _, s := range shas {
-			if _, err := fmt.Fprintln(w, s); err != nil {
-				return
-			}
-		}
-		w.Flush()
-	}()
-
-	const maxBlob = 64 << 20
-	br := bufio.NewReaderSize(stdout, 1<<16)
-	for range shas {
-		header, err := br.ReadString('\n')
-		if err != nil {
-			break
-		}
-		cols := strings.Fields(header)
-		if len(cols) < 3 { // "<sha> missing"
-			continue
-		}
-		size, err := strconv.Atoi(cols[2])
-		if err != nil {
-			continue
-		}
-		if size > maxBlob {
-			if _, err := br.Discard(size + 1); err != nil {
-				break
-			}
-			continue
-		}
-		buf := make([]byte, size)
-		if _, err := io.ReadFull(br, buf); err != nil {
-			break
-		}
-		br.ReadByte() // trailing newline
-		fn(cols[0], buf)
-	}
-	io.Copy(io.Discard, br) // let git and the writer goroutine finish
-	return cmd.Wait()
-}
-
-func gitTry(repo string, args ...string) string {
-	out, _ := gitRun(repo, args...)
-	return strings.TrimSpace(out)
-}
-
-func isRepo(path string) bool {
-	_, err := gitRun(path, "rev-parse", "--git-dir")
-	return err == nil
-}
-
-func hasCommits(repo string) bool {
-	_, err := gitRun(repo, "rev-parse", "--verify", "-q", "HEAD")
-	return err == nil
-}
-
-func repoRoot(path string) (string, error) {
-	out, err := gitRun(path, "rev-parse", "--show-toplevel")
-	return strings.TrimSpace(out), err
-}
-
-// identities
-
-const fieldSep = "\x1f" // ASCII Unit Separator, used to split git-log --format fields
-
-type identity struct {
-	name             string
-	email            string
-	authorCommits    int
-	committerCommits int
-	firstDate        string
-	lastDate         string
-	isYou            bool
-}
-
-type footprint struct {
-	totalCommits int
-	identities   []identity
-}
-
-func collectIdentities(repo string) ([]identity, error) {
-	fields := []string{"%an", "%ae", "%ad", "%cn", "%ce", "%cd"}
-	// --branches --tags --remotes, not --all: keep local-only refs/stash and
-	// refs/notes out of the footprint.
-	out, err := gitRun(repo, "log", "HEAD", "--branches", "--tags", "--remotes",
-		"--no-color", "--date=short", "--format="+strings.Join(fields, fieldSep))
-	if err != nil {
-		return nil, err
-	}
-
-	type key struct{ name, email string }
-	byKey := map[key]*identity{}
-	var order []key
-
-	note := func(name, email, date string, author bool) {
-		email = strings.ToLower(email)
-		k := key{name, email}
-		id := byKey[k]
-		if id == nil {
-			id = &identity{name: name, email: email, firstDate: date, lastDate: date}
-			byKey[k] = id
-			order = append(order, k)
-		}
-		if author {
-			id.authorCommits++
-		} else {
-			id.committerCommits++
-		}
-		if len(date) == 10 {
-			if id.firstDate == "" || date < id.firstDate {
-				id.firstDate = date
-			}
-			if date > id.lastDate {
-				id.lastDate = date
-			}
-		}
-	}
-
-	for _, line := range strings.Split(out, "\n") {
-		f := strings.Split(line, fieldSep)
-		if len(f) < 6 {
-			continue
-		}
-		note(f[0], f[1], f[2], true)
-		note(f[3], f[4], f[5], false)
-	}
-
-	ids := make([]identity, 0, len(order))
-	for _, k := range order {
-		ids = append(ids, *byKey[k])
-	}
-	return ids, nil
-}
-
-func buildFootprint(repo string) (footprint, error) {
-	youEmail := strings.ToLower(gitTry(repo, "config", "user.email"))
-	youName := gitTry(repo, "config", "user.name")
-
-	ids, err := collectIdentities(repo)
-	if err != nil {
-		return footprint{}, err
-	}
-
-	switch {
-	case youEmail != "":
-		for i := range ids {
-			ids[i].isYou = ids[i].email == youEmail
-		}
-	case youName != "":
-		for i := range ids {
-			ids[i].isYou = ids[i].name == youName
-		}
-	}
-
-	sort.SliceStable(ids, func(i, j int) bool {
-		if ids[i].isYou != ids[j].isYou {
-			return ids[i].isYou
-		}
-		return ids[i].authorCommits+ids[i].committerCommits >
-			ids[j].authorCommits+ids[j].committerCommits
-	})
-
-	commits := 0
-	for _, id := range ids {
-		commits += id.authorCommits
-	}
-	return footprint{totalCommits: commits, identities: ids}, nil
-}
-
 // blobs
 
-var imageExts = map[string]bool{
-	".jpg": true, ".jpeg": true, ".jpe": true, ".jfif": true,
-	".png": true, ".tif": true, ".tiff": true, ".dng": true,
-	".heic": true, ".heif": true, ".avif": true,
-	".cr2": true, ".cr3": true, ".crw": true, ".arw": true, ".nef": true,
-}
+const fieldSep = "\x1f" // ASCII Unit Separator
 
 type imageMeta struct {
+	exif.Data
 	path    string
 	disk    string // abs path a hyperlink should open (working tree, or a temp extract)
 	byName  string // author of the commit that introduced this blob
 	byEmail string
-	gps     string // "lat, long"
-	creator string // Artist or Copyright
-	camera  string // "Make Model"
-	taken   string // "2006-01-02 15:04:05"
-}
-
-func (m imageMeta) revealing() bool { return m.gps != "" || m.creator != "" }
-
-func (m imageMeta) empty() bool {
-	return m.gps == "" && m.creator == "" && m.camera == "" && m.taken == ""
 }
 
 type blobScan struct {
@@ -372,21 +164,6 @@ type dsStoreLeak struct {
 	disk            string
 	byName, byEmail string
 	names           []string
-}
-
-func headBlobs(repo string) map[string]string {
-	out, _ := gitRun(repo, "ls-tree", "-r", "-z", "HEAD")
-	m := map[string]string{}
-	for _, e := range strings.Split(out, "\x00") {
-		tab := strings.IndexByte(e, '\t')
-		if tab < 0 {
-			continue
-		}
-		if f := strings.Fields(e[:tab]); len(f) >= 3 {
-			m[e[tab+1:]] = f[2]
-		}
-	}
-	return m
 }
 
 // linkTarget is the absolute path a finding's hyperlink should open. When the
@@ -417,14 +194,14 @@ func linkTarget(root, path, sha string, content []byte, extract bool, head map[s
 // tallies the binary blobs it had nothing to say about.
 func scanBlobs(repo string) (blobScan, error) {
 	const hdr = "\x1e"
-	out, err := gitRun(repo, "-c", "core.quotePath=false",
+	out, err := gitcmd.Run(repo, "-c", "core.quotePath=false",
 		"log", "--branches", "--tags", "--remotes",
 		"--reverse", "--no-renames", "--no-abbrev", "--diff-filter=AM",
 		"--no-color", "--format="+hdr+"%an"+fieldSep+"%ae", "--raw")
 	if err != nil {
 		return blobScan{}, err
 	}
-	head := headBlobs(repo)
+	head := gitcmd.HeadBlobs(repo)
 
 	bySha := map[string]blobRef{}
 	var shas []string
@@ -459,7 +236,7 @@ func scanBlobs(repo string) (blobScan, error) {
 	}
 
 	scan := blobScan{uninspected: map[string]int{}}
-	err = catFileBatch(repo, shas, func(sha string, content []byte) {
+	err = gitcmd.CatFileBatch(repo, shas, func(sha string, content []byte) {
 		if !looksBinary(content) {
 			return
 		}
@@ -476,9 +253,10 @@ func scanBlobs(repo string) (blobScan, error) {
 		}
 
 		ext := strings.ToLower(filepath.Ext(ref.path))
-		if imageExts[ext] {
+		if exif.IsImage(ref.path) {
 			// a supported image type: inspected, whether or not it had EXIF
-			if m := readEXIF(ref.path, content); !m.empty() {
+			if d := exif.Read(content); !d.Empty() {
+				m := imageMeta{Data: d, path: ref.path}
 				m.byName, m.byEmail = ref.byName, ref.byEmail
 				m.disk = linkTarget(repo, ref.path, sha, content, true, head)
 				scan.images = append(scan.images, m)
@@ -490,8 +268,8 @@ func scanBlobs(repo string) (blobScan, error) {
 
 	scan.images = dedupeImages(scan.images)
 	sort.SliceStable(scan.images, func(i, j int) bool {
-		if scan.images[i].revealing() != scan.images[j].revealing() {
-			return scan.images[i].revealing()
+		if scan.images[i].Revealing() != scan.images[j].Revealing() {
+			return scan.images[i].Revealing()
 		}
 		return scan.images[i].path < scan.images[j].path
 	})
@@ -506,7 +284,7 @@ func dedupeImages(in []imageMeta) []imageMeta {
 	seen := map[key]bool{}
 	var out []imageMeta
 	for _, m := range in {
-		k := key{m.path, m.byName, m.byEmail, m.gps, m.creator, m.camera, m.taken}
+		k := key{m.path, m.byName, m.byEmail, m.GPS, m.Creator, m.Camera, m.Taken}
 		if seen[k] {
 			continue
 		}
@@ -521,74 +299,6 @@ func looksBinary(b []byte) bool {
 		b = b[:8000]
 	}
 	return bytes.IndexByte(b, 0) >= 0
-}
-
-func readEXIF(path string, blob []byte) (m imageMeta) {
-	m.path = path
-	defer func() { _ = recover() }() // parsers can panic on hostile input
-
-	// imagemeta's PNG scanner assumes big-endian EXIF; pull the eXIf chunk
-	// ourselves and hand the raw TIFF stream to the (endian-aware) TIFF path.
-	decode, src := imagemeta.Decode, bytes.NewReader(blob)
-	if payload := pngEXIF(blob); payload != nil {
-		decode, src = imagemeta.DecodeTiff, bytes.NewReader(payload)
-	}
-	x, err := decode(src)
-	if err != nil {
-		return m
-	}
-
-	if lat, long := x.GPS.Latitude(), x.GPS.Longitude(); lat != 0 || long != 0 {
-		m.gps = fmt.Sprintf("%.5f, %.5f", lat, long)
-	}
-	m.creator = clean(x.IFD0.Artist)
-	if m.creator == "" {
-		m.creator = clean(x.IFD0.Copyright)
-	}
-	m.camera = cameraName(clean(x.CameraMake()), clean(x.IFD0.Model))
-	if t := x.OriginalDate(); !t.IsZero() {
-		m.taken = t.Format("2006-01-02 15:04:05")
-	}
-	return m
-}
-
-func clean(s string) string { return strings.TrimRight(s, "\x00 ") }
-
-// pngEXIF returns the raw EXIF (TIFF) payload from a PNG's eXIf chunk, or nil.
-func pngEXIF(b []byte) []byte {
-	if len(b) < 8 || string(b[:8]) != "\x89PNG\r\n\x1a\n" {
-		return nil
-	}
-	for p := 8; p+8 <= len(b); {
-		n := int(binary.BigEndian.Uint32(b[p:]))
-		typ := string(b[p+4 : p+8])
-		p += 8
-		if n < 0 || p+n > len(b) {
-			return nil
-		}
-		switch typ {
-		case "eXIf":
-			return b[p : p+n]
-		case "IEND":
-			return nil
-		}
-		p += n + 4 // chunk data + CRC
-	}
-	return nil
-}
-
-func cameraName(mk, model string) string {
-	switch {
-	case mk == "":
-		return model
-	case model == "":
-		return mk
-	}
-	if brand := strings.Fields(mk); len(brand) > 0 &&
-		strings.HasPrefix(strings.ToLower(model), strings.ToLower(brand[0])) {
-		return model // model already carries the maker, e.g. "NIKON D2H"
-	}
-	return mk + " " + model
 }
 
 // report
@@ -636,26 +346,26 @@ func plural(n int, one, many string) string {
 	return strings.ReplaceAll(form, "$1", fmt.Sprint(n))
 }
 
-func commitCount(id identity) string {
+func commitCount(id identity.Identity) string {
 	switch {
-	case id.authorCommits == 0:
-		return plural(id.committerCommits, "$1 commit", "$1 commits") + " (as committer only)"
-	case id.committerCommits == 0:
-		return plural(id.authorCommits, "$1 commit", "$1 commits") + " (as author only)"
-	case id.authorCommits != id.committerCommits:
-		return plural(id.authorCommits, "$1 commit", "$1 commits") +
-			fmt.Sprintf(" (%d as committer)", id.committerCommits)
+	case id.AuthorCommits == 0:
+		return plural(id.CommitterCommits, "$1 commit", "$1 commits") + " (as committer only)"
+	case id.CommitterCommits == 0:
+		return plural(id.AuthorCommits, "$1 commit", "$1 commits") + " (as author only)"
+	case id.AuthorCommits != id.CommitterCommits:
+		return plural(id.AuthorCommits, "$1 commit", "$1 commits") +
+			fmt.Sprintf(" (%d as committer)", id.CommitterCommits)
 	default:
-		return plural(id.authorCommits, "$1 commit", "$1 commits")
+		return plural(id.AuthorCommits, "$1 commit", "$1 commits")
 	}
 }
 
-func dateRange(id identity) string {
+func dateRange(id identity.Identity) string {
 	switch {
-	case len(id.firstDate) == 10 && id.firstDate != id.lastDate:
-		return id.firstDate + " -> " + id.lastDate
-	case len(id.firstDate) == 10:
-		return id.firstDate
+	case len(id.FirstDate) == 10 && id.FirstDate != id.LastDate:
+		return id.FirstDate + " -> " + id.LastDate
+	case len(id.FirstDate) == 10:
+		return id.FirstDate
 	default:
 		return ""
 	}
@@ -704,15 +414,15 @@ func headerBox(pt painter, title string, lines ...string) {
 	pt.put("╰"+rule+"╯\n\n", ansiDim)
 }
 
-func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
+func render(w io.Writer, fp identity.Footprint, scan blobScan, repo string, color bool) {
 	pt := painter{w: w, color: color}
 	images := scan.images
 
 	headerBox(pt,
 		"git-footprint",
 		repo,
-		plural(fp.totalCommits, "$1 commit", "$1 commits")+" across "+
-			plural(len(fp.identities), "$1 identity", "$1 identities"),
+		plural(fp.TotalCommits, "$1 commit", "$1 commits")+" across "+
+			plural(len(fp.Identities), "$1 identity", "$1 identities"),
 	)
 
 	byWho := map[[2]string][]imageMeta{}
@@ -727,16 +437,16 @@ func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 	}
 
 	revealing := 0
-	for _, id := range fp.identities {
+	for _, id := range fp.Identities {
 		youColor := ""
-		if id.isYou {
+		if id.IsYou {
 			youColor = ansiGreen
 		}
 		pt.put("● ", ansiBold, youColor)
-		if id.isYou {
+		if id.IsYou {
 			pt.put("you  ", ansiBold, ansiGreen)
 		}
-		pt.put(id.name+" <"+id.email+">\n", ansiBold)
+		pt.put(id.Name+" <"+id.Email+">\n", ansiBold)
 
 		line := "    " + commitCount(id)
 		if dr := dateRange(id); dr != "" {
@@ -744,9 +454,9 @@ func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 		}
 		pt.put(line + "\n")
 
-		k := [2]string{id.name, id.email}
+		k := [2]string{id.Name, id.Email}
 		for _, m := range byWho[k] {
-			if m.revealing() {
+			if m.Revealing() {
 				revealing++
 			}
 			imageLine(pt, m)
@@ -768,7 +478,7 @@ func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 		sort.SliceStable(orphan, func(i, j int) bool { return orphan[i].path < orphan[j].path })
 		pt.put("\nimages not tied to a listed identity\n", ansiBold)
 		for _, m := range orphan {
-			if m.revealing() {
+			if m.Revealing() {
 				revealing++
 			}
 			imageLine(pt, m)
@@ -864,21 +574,21 @@ func extBreakdown(m map[string]int) string {
 
 func imageLine(pt painter, m imageMeta) {
 	marker, code := "● ", ""
-	if m.revealing() {
+	if m.Revealing() {
 		marker, code = "⚠ ", ansiYellow
 	}
 	var parts []string
-	if m.gps != "" {
-		parts = append(parts, "location "+m.gps)
+	if m.GPS != "" {
+		parts = append(parts, "location "+m.GPS)
 	}
-	if m.creator != "" {
-		parts = append(parts, "creator "+m.creator)
+	if m.Creator != "" {
+		parts = append(parts, "creator "+m.Creator)
 	}
-	if m.camera != "" {
-		parts = append(parts, m.camera)
+	if m.Camera != "" {
+		parts = append(parts, m.Camera)
 	}
-	if m.taken != "" {
-		parts = append(parts, m.taken)
+	if m.Taken != "" {
+		parts = append(parts, m.Taken)
 	}
 	pt.put("    "+marker+pt.link(m.path, m.disk)+"  ·  "+strings.Join(parts, "  ·  ")+"\n", code)
 }
