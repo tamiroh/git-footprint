@@ -29,6 +29,9 @@ func parseNames(b []byte) (names []string) {
 	nBlocks := int(be.Uint32(b[book:]))
 	p := book + 8
 
+	if nBlocks < 0 || nBlocks > len(b)/4 {
+		return // more block addresses than the file could possibly hold
+	}
 	addr := make([]uint32, 0, nBlocks)
 	for i := 0; i < nBlocks; i++ {
 		if p+4 > len(b) {
@@ -82,11 +85,13 @@ func parseNames(b []byte) (names []string) {
 	}
 
 	seen := map[string]bool{}
+	visited := map[int]bool{} // a B-tree node is walked once; a crafted cycle would not terminate
 	var walk func(node, depth int)
 	walk = func(node, depth int) {
-		if depth > 40 {
+		if depth > 40 || visited[node] {
 			return
 		}
+		visited[node] = true
 		d := block(node)
 		if len(d) < 8 {
 			return
@@ -150,8 +155,8 @@ func parseNames(b []byte) (names []string) {
 				return
 			}
 		}
-		if internal && pos+4 <= len(d) {
-			walk(int(be.Uint32(d[pos:])), depth+1)
+		if internal {
+			walk(int(be.Uint32(d[0:])), depth+1) // rightmost child: the node header's P field
 		}
 	}
 	walk(int(be.Uint32(head)), 0)

@@ -154,6 +154,8 @@ func readVideo(blob []byte) (d Data) {
 		t := h.BoxInfo.Type.String()
 		raw := string(h.BoxInfo.Type[:]) // "©" atoms: raw is "\xa9xyz", t is "(c)xyz"
 		switch {
+		case len(h.Path) > 12:
+			return nil, nil // a real box tree is ~7 deep; deeper is a crafted bomb
 		case containerBox[t] || underIlst(h.Path):
 			return h.Expand()
 
@@ -183,7 +185,9 @@ func readVideo(blob []byte) (d Data) {
 					d.GPS = fmt.Sprintf("%.5f, %.5f", lat, lon)
 				}
 			case strings.HasSuffix(key, "creationdate") || key == "\xa9day":
-				d.Taken = normalizeTime(val)
+				if t := normalizeTime(val); t != "" {
+					d.Taken = t // keep an earlier mvhd date if this one is unparseable
+				}
 			case strings.HasSuffix(key, ".make") || key == "\xa9mak":
 				mk = val
 			case strings.HasSuffix(key, ".model") || key == "\xa9mod":

@@ -24,15 +24,21 @@ type painter struct {
 	color bool
 }
 
-func (pt painter) link(text, target string) string { // OSC 8 hyperlink
-	if !pt.color || target == "" {
-		return text
+// put writes caller text, scrubbed of terminal control sequences — names,
+// paths and metadata all come from the scanned (possibly hostile) repository.
+func (pt painter) put(text string, codes ...string) { pt.write(sane(text), codes...) }
+
+// putLink writes text as an OSC 8 hyperlink to target, then a newline.
+func (pt painter) putLink(text, target string, codes ...string) {
+	text = sane(text)
+	if pt.color && target != "" {
+		uri := (&url.URL{Scheme: "file", Path: target}).String()
+		text = "\x1b]8;;" + uri + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 	}
-	uri := (&url.URL{Scheme: "file", Path: target}).String()
-	return "\x1b]8;;" + uri + "\x1b\\" + text + "\x1b]8;;\x1b\\"
+	pt.write(text+"\n", codes...)
 }
 
-func (pt painter) put(text string, codes ...string) {
+func (pt painter) write(text string, codes ...string) {
 	var active []string
 	for _, c := range codes {
 		if c != "" {
@@ -44,6 +50,20 @@ func (pt painter) put(text string, codes ...string) {
 	} else {
 		fmt.Fprint(pt.w, text)
 	}
+}
+
+func ctrl(r rune) bool { return (r < 0x20 && r != '\n') || (r >= 0x7f && r <= 0x9f) }
+
+func sane(s string) string {
+	if strings.IndexFunc(s, ctrl) < 0 {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if ctrl(r) {
+			return '�'
+		}
+		return r
+	}, s)
 }
 
 func plural(n int, one, many string) string {
@@ -242,7 +262,7 @@ func findingBlock(pt painter, f rule.Finding) {
 		label, labelCode, lineCode = "[WARN]", ansiYellow, ansiYellow
 	}
 	pt.put("    "+label+"  ", labelCode)
-	pt.put(pt.link(f.Path, f.Link)+"\n", lineCode)
+	pt.putLink(f.Path, f.Link, lineCode)
 
 	for _, fld := range f.Detail {
 		if fld.Label == "" {

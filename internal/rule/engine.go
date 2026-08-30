@@ -34,7 +34,6 @@ type Engine struct {
 	rules []Rule
 	head  map[string]string
 	links bool // extract historical bytes so hyperlinks resolve (interactive only)
-	swept bool
 }
 
 // NewEngine builds the engine. links should be true only when the report will
@@ -45,16 +44,19 @@ func NewEngine(root string, rules []Rule, links bool) *Engine {
 }
 
 const (
-	logRec   = "\x1e" // record separator, prefixes each commit header line
-	fieldSep = "\x1f" // unit separator, between %an and %ae
+	logRec   = "\x1e" // marks a commit header line (paths are quoted, so they never start with it)
+	fieldSep = "\x00" // between %an and %ae; git forbids NUL in either, so a hostile name can't split
 )
 
 // Run walks every blob ever added or changed and returns the collected findings.
 func (e *Engine) Run() (Result, error) {
+	if e.links {
+		sweep(filepath.Join(os.TempDir(), "git-footprint"))
+	}
 	out, err := gitcmd.Run(e.root, "-c", "core.quotePath=false",
 		"log", "HEAD", "--branches", "--tags", "--remotes",
 		"--reverse", "--no-renames", "--no-abbrev", "--diff-filter=AM",
-		"--no-color", "--format="+logRec+"%an"+fieldSep+"%ae", "--raw")
+		"--no-color", "--format=%x1e%an%x00%ae", "--raw")
 	if err != nil {
 		return Result{}, err
 	}
@@ -166,16 +168,12 @@ const tempTTL = time.Hour
 
 // extract writes a blob's bytes to a fresh private file under
 // $TMPDIR/git-footprint/ so a hyperlink can open bytes no longer in the working
-// tree. Files older than one run are swept first; anything left is a copy of a
-// leaking file, so the name carries no more than the report already shows.
+// tree. Run sweeps the dir first; anything left is a copy of a leaking file, so
+// the name carries no more than the report already shows.
 func (e *Engine) extract(b Blob) string {
 	dir := filepath.Join(os.TempDir(), "git-footprint")
 	if os.MkdirAll(dir, 0o700) != nil {
 		return ""
-	}
-	if !e.swept {
-		e.swept = true
-		sweep(dir)
 	}
 	base, ext := tempStem(b)
 	f, err := os.CreateTemp(dir, base+"-*"+ext) // 0600, unpredictable suffix
@@ -191,13 +189,14 @@ func (e *Engine) extract(b Blob) string {
 }
 
 // tempStem splits a recognisable prefix and the extension for the temp name.
+// "*" is dropped from both since os.CreateTemp treats it as the wildcard.
 func tempStem(b Blob) (base, ext string) {
 	name := b.Path
 	if i := strings.LastIndex(name, " » "); i >= 0 {
 		name = name[i+len(" » "):]
 	}
 	name = filepath.Base(name)
-	name = strings.NewReplacer("/", "-", `\`, "-", "..", "").Replace(name)
+	name = strings.NewReplacer("/", "-", `\`, "-", "..", "", "*", "").Replace(name)
 	ext = filepath.Ext(name)
 	name = strings.TrimSuffix(name, ext)
 	if r := []rune(name); len(r) > 60 {

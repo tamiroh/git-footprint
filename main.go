@@ -91,15 +91,14 @@ func run() int {
 		archive.New(),
 	}, color)
 	result, scanErr := engine.Run()
-	if scanErr != nil {
-		fmt.Fprintln(os.Stderr, "blob scan incomplete:", scanErr)
-	}
 
 	out, closePager := startPager(tty && !*noPager)
 	report.Render(out, fp, result, root, color)
 	closePager()
 
 	if scanErr != nil {
+		// after the pager, so it's the last thing on screen
+		fmt.Fprintln(os.Stderr, "blob scan incomplete:", scanErr)
 		return 2 // an incomplete scan can't answer --fail-on
 	}
 	found, level := result.Worst()

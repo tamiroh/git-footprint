@@ -9,7 +9,9 @@ import (
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
 )
 
-const fieldSep = "\x1f" // ASCII Unit Separator, used to split git-log --format fields
+// fieldSep is NUL: git forbids it in names, emails and dates, so a hostile
+// user.name can't shift the parsed fields. The format string emits it as %x00.
+const fieldSep = "\x00"
 
 type Identity struct {
 	Name             string
@@ -31,7 +33,7 @@ func collect(repo string) ([]Identity, error) {
 	// --branches --tags --remotes, not --all: keep local-only refs/stash and
 	// refs/notes out of the footprint.
 	out, err := gitcmd.Run(repo, "log", "HEAD", "--branches", "--tags", "--remotes",
-		"--no-color", "--date=short", "--format="+strings.Join(fields, fieldSep))
+		"--no-color", "--date=short", "--format="+strings.Join(fields, "%x00"))
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +47,7 @@ func collect(repo string) ([]Identity, error) {
 		k := key{name, email}
 		id := byKey[k]
 		if id == nil {
-			id = &Identity{Name: name, Email: email, FirstDate: date, LastDate: date}
+			id = &Identity{Name: name, Email: email}
 			byKey[k] = id
 			order = append(order, k)
 		}
@@ -54,7 +56,7 @@ func collect(repo string) ([]Identity, error) {
 		} else {
 			id.CommitterCommits++
 		}
-		if len(date) == 10 {
+		if len(date) == 10 { // "--date=short"; ignore anything else
 			if id.FirstDate == "" || date < id.FirstDate {
 				id.FirstDate = date
 			}

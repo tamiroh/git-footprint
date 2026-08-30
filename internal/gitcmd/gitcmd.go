@@ -88,7 +88,7 @@ func CatFileBatch(repo string, shas []string, fn func(sha string, content []byte
 		if err != nil {
 			continue
 		}
-		if size > maxBlob {
+		if cols[1] != "blob" || size > maxBlob { // a gitlink resolves to a commit object
 			if _, err := br.Discard(size + 1); err != nil {
 				break
 			}
