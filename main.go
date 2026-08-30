@@ -14,7 +14,10 @@ import (
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
 	"github.com/tamiroh/git-footprint/internal/identity"
 	"github.com/tamiroh/git-footprint/internal/report"
-	"github.com/tamiroh/git-footprint/internal/scan"
+	"github.com/tamiroh/git-footprint/internal/rule"
+	"github.com/tamiroh/git-footprint/internal/rules/archive"
+	"github.com/tamiroh/git-footprint/internal/rules/dsstore"
+	"github.com/tamiroh/git-footprint/internal/rules/metadata"
 )
 
 const version = "0.1.0"
@@ -79,7 +82,12 @@ func run() int {
 		return 2
 	}
 
-	result, err := scan.Blobs(root)
+	engine := rule.NewEngine(root, []rule.Rule{
+		metadata.New(),
+		dsstore.New(),
+		archive.New(),
+	})
+	result, err := engine.Run()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "blob scan incomplete:", err)
 	}
@@ -91,10 +99,10 @@ func run() int {
 	report.Render(out, fp, result, root, color)
 	closePager()
 
-	found, revealing := result.Findings()
+	found, level := result.Worst()
 	switch strings.ToLower(*failOn) {
 	case "warn":
-		if revealing {
+		if level >= rule.Warn {
 			return 1
 		}
 	case "info":

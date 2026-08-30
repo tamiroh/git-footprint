@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/identity"
-	"github.com/tamiroh/git-footprint/internal/scan"
+	"github.com/tamiroh/git-footprint/internal/rule"
 )
 
 const (
@@ -113,10 +113,20 @@ func headerBox(pt painter, title string, lines ...string) {
 	pt.put("╰"+rule+"╯\n\n", ansiDim)
 }
 
-// Render writes the footprint report for fp and s to w.
-func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, color bool) {
+// ruleRank fixes the order findings from different rules appear in, both under a
+// contributor and in the orphan section.
+var ruleRank = map[string]int{"metadata": 0, "dsstore": 1}
+
+// orphanTitle names the section for findings whose introducing author is not a
+// listed identity (they came in through a merge).
+var orphanTitle = map[string]string{
+	"metadata": "media not tied to a listed identity",
+	"dsstore":  ".DS_Store files not tied to a listed identity",
+}
+
+// Render writes the footprint report for fp and res to w.
+func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, color bool) {
 	pt := painter{w: w, color: color}
-	media := s.Media
 
 	headerBox(pt,
 		"git-footprint",
@@ -125,18 +135,12 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 			plural(len(fp.Identities), "$1 identity", "$1 identities"),
 	)
 
-	byWho := map[[2]string][]scan.Media{}
-	for _, m := range media {
-		k := [2]string{m.ByName, m.ByEmail}
-		byWho[k] = append(byWho[k], m)
-	}
-	dsByWho := map[[2]string][]scan.DSStore{}
-	for _, d := range s.DSStores {
-		k := [2]string{d.ByName, d.ByEmail}
-		dsByWho[k] = append(dsByWho[k], d)
+	byWho := map[[2]string][]rule.Finding{}
+	for _, f := range res.Findings {
+		k := [2]string{f.By.Name, f.By.Email}
+		byWho[k] = append(byWho[k], f)
 	}
 
-	revealing := 0
 	for _, id := range fp.Identities {
 		nameCode, code := ansiBold, ""
 		if id.Bot {
@@ -151,119 +155,117 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 		pt.put(line+"\n", code)
 
 		k := [2]string{id.Name, id.Email}
-		for _, m := range byWho[k] {
-			if m.Revealing() {
-				revealing++
-			}
-			mediaLine(pt, m)
-		}
-		for _, d := range dsByWho[k] {
-			dsLine(pt, d)
+		for _, f := range sortFindings(byWho[k]) {
+			findingBlock(pt, f)
 		}
 		delete(byWho, k)
-		delete(dsByWho, k)
-
 		pt.put("\n")
 	}
 
-	var orphan []scan.Media
-	for _, ms := range byWho {
-		orphan = append(orphan, ms...)
+	var orphans []rule.Finding
+	for _, fs := range byWho {
+		orphans = append(orphans, fs...)
 	}
-	if len(orphan) > 0 {
-		sort.SliceStable(orphan, func(i, j int) bool { return orphan[i].Path < orphan[j].Path })
-		pt.put("\nmedia not tied to a listed identity\n", ansiBold)
-		for _, m := range orphan {
-			if m.Revealing() {
-				revealing++
-			}
-			mediaLine(pt, m)
+	for _, name := range []string{"metadata", "dsstore"} {
+		sub := ofRule(orphans, name)
+		if len(sub) == 0 {
+			continue
+		}
+		sort.SliceStable(sub, func(i, j int) bool { return sub[i].Path < sub[j].Path })
+		pt.put("\n"+orphanTitle[name]+"\n", ansiBold)
+		for _, f := range sub {
+			findingBlock(pt, f)
 		}
 	}
 
-	var dsOrphan []scan.DSStore
-	for _, ds := range dsByWho {
-		dsOrphan = append(dsOrphan, ds...)
-	}
-	if len(dsOrphan) > 0 {
-		sort.SliceStable(dsOrphan, func(i, j int) bool { return dsOrphan[i].Path < dsOrphan[j].Path })
-		pt.put("\n.DS_Store files not tied to a listed identity\n", ansiBold)
-		for _, d := range dsOrphan {
-			dsLine(pt, d)
-		}
-	}
-
-	if len(media) > 0 {
-		line := plural(len(media), "$1 file carries embedded metadata", "$1 files carry embedded metadata")
-		if revealing > 0 {
-			recap(pt, true, line+" ("+plural(revealing, "$1 reveals", "$1 reveal")+" a location or creator)")
-		} else {
-			recap(pt, false, line)
-		}
-	}
-
-	if n := len(s.DSStores); n > 0 {
-		nameCount := 0
-		for _, d := range s.DSStores {
-			nameCount += len(d.Names)
-		}
-		recap(pt, true, plural(n, "$1 committed .DS_Store", "$1 committed .DS_Store files")+
-			" leaking "+plural(nameCount, "$1 file/folder name", "$1 file/folder names"))
-	}
-
-	if n := total(s.Uninspected); n > 0 {
+	recapMetadata(pt, ofRule(res.Findings, "metadata"))
+	recapDSStore(pt, ofRule(res.Findings, "dsstore"))
+	if n := total(res.Unclaimed); n > 0 {
 		recap(pt, false, plural(n, "$1 file", "$1 files")+
-			" not read (unsupported format)  ·  "+extBreakdown(s.Uninspected))
+			" not read (unsupported format)  ·  "+extBreakdown(res.Unclaimed))
+	}
+}
+
+func sortFindings(in []rule.Finding) []rule.Finding {
+	out := append([]rule.Finding(nil), in...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if a, b := ruleRank[out[i].Rule], ruleRank[out[j].Rule]; a != b {
+			return a < b
+		}
+		if out[i].Level != out[j].Level {
+			return out[i].Level > out[j].Level // Warn before Info
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
+func ofRule(in []rule.Finding, name string) []rule.Finding {
+	var out []rule.Finding
+	for _, f := range in {
+		if f.Rule == name {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func findingBlock(pt painter, f rule.Finding) {
+	label, labelCode, lineCode := "[INFO]", ansiDim, ""
+	if f.Level == rule.Warn {
+		label, labelCode, lineCode = "[WARN]", ansiYellow, ansiYellow
+	}
+	pt.put("    "+label+"  ", labelCode)
+	pt.put(pt.link(f.Path, f.Link)+"\n", lineCode)
+
+	for _, fld := range f.Detail {
+		if fld.Label == "" {
+			pt.put("        " + fld.Value + "\n")
+			continue
+		}
+		pt.put("        "+fld.Label+strings.Repeat(" ", 10-len(fld.Label)), ansiDim)
+		pt.put(fld.Value + "\n")
 	}
 }
 
 // recap prints a bottom-of-report summary line, tagged [WARN] or [INFO].
 func recap(pt painter, warn bool, text string) {
+	tag, code := "[INFO]  ", ansiDim
 	if warn {
-		pt.put("[WARN]  ", ansiYellow)
-		pt.put(text+"\n", ansiYellow)
-	} else {
-		pt.put("[INFO]  ", ansiDim)
-		pt.put(text+"\n", ansiDim)
+		tag, code = "[WARN]  ", ansiYellow
 	}
+	pt.put(tag, code)
+	pt.put(text+"\n", code)
 }
 
-func mediaLine(pt painter, m scan.Media) {
-	label, labelCode, lineCode := "[INFO]", ansiDim, ""
-	if m.Revealing() {
-		label, labelCode, lineCode = "[WARN]", ansiYellow, ansiYellow
+func recapMetadata(pt painter, fs []rule.Finding) {
+	if len(fs) == 0 {
+		return
 	}
-	pt.put("    "+label+"  ", labelCode)
-	pt.put(pt.link(m.Path, m.Disk)+"\n", lineCode)
-
-	for _, f := range [][2]string{
-		{"location", m.GPS},
-		{"creator", m.Creator},
-		{"device", m.Camera},
-		{"software", m.Software},
-		{"date", m.Taken},
-	} {
-		if f[1] == "" {
-			continue
+	revealing := 0
+	for _, f := range fs {
+		if f.Level == rule.Warn {
+			revealing++
 		}
-		pt.put("        "+f[0]+strings.Repeat(" ", 10-len(f[0])), ansiDim)
-		pt.put(f[1] + "\n")
+	}
+	line := plural(len(fs), "$1 file carries embedded metadata", "$1 files carry embedded metadata")
+	if revealing > 0 {
+		recap(pt, true, line+" ("+plural(revealing, "$1 reveals", "$1 reveal")+" a location or creator)")
+	} else {
+		recap(pt, false, line)
 	}
 }
 
-func dsLine(pt painter, d scan.DSStore) {
-	const show = 8
-	head := d.Names
-	if len(head) > show {
-		head = head[:show]
+func recapDSStore(pt painter, fs []rule.Finding) {
+	if len(fs) == 0 {
+		return
 	}
-	pt.put("    [WARN]  ", ansiYellow)
-	pt.put(pt.link(d.Path, d.Disk)+"\n", ansiYellow)
-	line := "        " + plural(len(d.Names), "$1 name", "$1 names") + ": " + strings.Join(head, ", ")
-	if len(d.Names) > show {
-		line += fmt.Sprintf(", +%d more", len(d.Names)-show)
+	names := 0
+	for _, f := range fs {
+		names += f.Count
 	}
-	pt.put(line + "\n")
+	recap(pt, true, plural(len(fs), "$1 committed .DS_Store", "$1 committed .DS_Store files")+
+		" leaking "+plural(names, "$1 file/folder name", "$1 file/folder names"))
 }
 
 func total(m map[string]int) int {
