@@ -21,9 +21,9 @@ git-footprint [--no-color] [--version] [REPO]
 ## Roadmap
 
 Today `git-footprint` reports, per contributor, every identity in the history
-and the EXIF metadata (location, creator, camera) of any image they committed.
-Planned:
+and the EXIF metadata (location, creator, camera) of any image they committed
+(JPEG, PNG, TIFF, HEIC/AVIF, and camera RAW). Planned:
 
 - real names and internal hostnames leaked in file paths and configs
-- more binary-embedded metadata: HEIC/PNG images, `.DS_Store`, PDF and Office
+- more binary-embedded metadata: `.DS_Store`, PDF and Office documents
 - content PII (addresses, phone numbers, national ID numbers)

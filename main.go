@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -15,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rwcarlsen/goexif/exif"
+	"github.com/evanoberholster/imagemeta"
 )
 
 const version = "0.1.0"
@@ -295,7 +296,10 @@ func buildFootprint(repo string) (footprint, error) {
 // blobs
 
 var imageExts = map[string]bool{
-	".jpg": true, ".jpeg": true, ".jpe": true, ".tif": true, ".tiff": true,
+	".jpg": true, ".jpeg": true, ".jpe": true, ".jfif": true,
+	".png": true, ".tif": true, ".tiff": true, ".dng": true,
+	".heic": true, ".heif": true, ".avif": true,
+	".cr2": true, ".cr3": true, ".crw": true, ".arw": true, ".nef": true,
 }
 
 type imageMeta struct {
@@ -369,13 +373,14 @@ func scanBlobs(repo string) (blobScan, error) {
 		ref := bySha[sha]
 		ext := strings.ToLower(filepath.Ext(ref.path))
 		if imageExts[ext] {
+			// a supported image type: inspected, whether or not it had EXIF
 			if m := readEXIF(ref.path, content); !m.empty() {
 				m.byName, m.byEmail = ref.byName, ref.byEmail
 				scan.images = append(scan.images, m)
-				return
 			}
+			return
 		}
-		scan.uninspected[ext]++
+		scan.uninspected[ext]++ // a binary format git-footprint does not read
 	})
 
 	sort.SliceStable(scan.images, func(i, j int) bool {
@@ -396,31 +401,59 @@ func looksBinary(b []byte) bool {
 
 func readEXIF(path string, blob []byte) (m imageMeta) {
 	m.path = path
-	defer func() { _ = recover() }() // goexif can panic on hostile input
+	defer func() { _ = recover() }() // parsers can panic on hostile input
 
-	x, err := exif.Decode(bytes.NewReader(blob))
+	// imagemeta's PNG scanner assumes big-endian EXIF; pull the eXIf chunk
+	// ourselves and hand the raw TIFF stream to the (endian-aware) TIFF path.
+	decode, src := imagemeta.Decode, bytes.NewReader(blob)
+	if payload := pngEXIF(blob); payload != nil {
+		decode, src = imagemeta.DecodeTiff, bytes.NewReader(payload)
+	}
+	x, err := decode(src)
 	if err != nil {
 		return m
 	}
 
-	if lat, long, err := x.LatLong(); err == nil && (lat != 0 || long != 0) {
+	if lat, long := x.GPS.Latitude(), x.GPS.Longitude(); lat != 0 || long != 0 {
 		m.gps = fmt.Sprintf("%.5f, %.5f", lat, long)
 	}
-	for _, name := range []exif.FieldName{exif.Artist, exif.Copyright} {
-		if v := exifStr(x, name); v != "" {
-			m.creator = v
-			break
-		}
+	m.creator = clean(x.IFD0.Artist)
+	if m.creator == "" {
+		m.creator = clean(x.IFD0.Copyright)
 	}
-	m.camera = cameraName(exifStr(x, exif.Make), exifStr(x, exif.Model))
-	if t, err := x.DateTime(); err == nil {
+	m.camera = cameraName(clean(x.CameraMake()), clean(x.IFD0.Model))
+	if t := x.OriginalDate(); !t.IsZero() {
 		m.taken = t.Format("2006-01-02 15:04:05")
 	}
 	return m
 }
 
+func clean(s string) string { return strings.TrimRight(s, "\x00 ") }
+
+// pngEXIF returns the raw EXIF (TIFF) payload from a PNG's eXIf chunk, or nil.
+func pngEXIF(b []byte) []byte {
+	if len(b) < 8 || string(b[:8]) != "\x89PNG\r\n\x1a\n" {
+		return nil
+	}
+	for p := 8; p+8 <= len(b); {
+		n := int(binary.BigEndian.Uint32(b[p:]))
+		typ := string(b[p+4 : p+8])
+		p += 8
+		if n < 0 || p+n > len(b) {
+			return nil
+		}
+		switch typ {
+		case "eXIf":
+			return b[p : p+n]
+		case "IEND":
+			return nil
+		}
+		p += n + 4 // chunk data + CRC
+	}
+	return nil
+}
+
 func cameraName(mk, model string) string {
-	mk, model = strings.TrimSpace(mk), strings.TrimSpace(model)
 	switch {
 	case mk == "":
 		return model
@@ -432,18 +465,6 @@ func cameraName(mk, model string) string {
 		return model // model already carries the maker, e.g. "NIKON D2H"
 	}
 	return mk + " " + model
-}
-
-func exifStr(x *exif.Exif, name exif.FieldName) string {
-	tag, err := x.Get(name)
-	if err != nil {
-		return ""
-	}
-	s, err := tag.StringVal()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimRight(s, "\x00 ")
 }
 
 // report
@@ -579,7 +600,8 @@ func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 	}
 
 	if n := total(scan.uninspected); n > 0 {
-		pt.put(plural(n, "$1 other binary file not inspected", "$1 other binary files not inspected")+
+		pt.put("not read (unsupported format): "+
+			plural(n, "$1 binary file", "$1 binary files")+
 			"  ·  "+extBreakdown(scan.uninspected)+"\n", ansiDim)
 	}
 }
