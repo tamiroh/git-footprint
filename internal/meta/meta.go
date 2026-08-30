@@ -94,6 +94,7 @@ func readImage(blob []byte) (d Data) {
 		d.Creator = clean(x.IFD0.Copyright)
 	}
 	d.Camera = cameraName(clean(x.CameraMake()), clean(x.IFD0.Model))
+	d.Software = clean(x.IFD0.Software) // OS version on phones, editor name on desktop
 	if t := x.OriginalDate(); !t.IsZero() {
 		d.Taken = t.Format("2006-01-02 15:04:05")
 	}
