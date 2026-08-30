@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -338,6 +339,7 @@ var imageExts = map[string]bool{
 
 type imageMeta struct {
 	path    string
+	disk    string // abs path a hyperlink should open (working tree, or a temp extract)
 	byName  string // author of the commit that introduced this blob
 	byEmail string
 	gps     string // "lat, long"
@@ -364,20 +366,62 @@ type blobRef struct {
 
 type dsStoreLeak struct {
 	path            string
+	disk            string
 	byName, byEmail string
 	names           []string
+}
+
+func headBlobs(repo string) map[string]string {
+	out, _ := gitRun(repo, "ls-tree", "-r", "-z", "HEAD")
+	m := map[string]string{}
+	for _, e := range strings.Split(out, "\x00") {
+		tab := strings.IndexByte(e, '\t')
+		if tab < 0 {
+			continue
+		}
+		if f := strings.Fields(e[:tab]); len(f) >= 3 {
+			m[e[tab+1:]] = f[2]
+		}
+	}
+	return m
+}
+
+// linkTarget is the absolute path a finding's hyperlink should open. When the
+// working tree holds exactly the bytes the finding came from, that file;
+// otherwise (for extractable types) a copy of the historical bytes under the
+// temp dir. "" means no link.
+func linkTarget(root, path, sha string, content []byte, extract bool, head map[string]string) string {
+	if head[path] == sha {
+		return filepath.Join(root, path)
+	}
+	if !extract {
+		return ""
+	}
+	dir := filepath.Join(os.TempDir(), "git-footprint")
+	if os.MkdirAll(dir, 0o755) != nil {
+		return ""
+	}
+	tmp := filepath.Join(dir, sha[:12]+"-"+filepath.Base(path))
+	if _, err := os.Stat(tmp); err != nil {
+		if os.WriteFile(tmp, content, 0o644) != nil {
+			return ""
+		}
+	}
+	return tmp
 }
 
 // scanBlobs reads every blob ever added or changed, pulls EXIF from images, and
 // tallies the binary blobs it had nothing to say about.
 func scanBlobs(repo string) (blobScan, error) {
 	const hdr = "\x1e"
-	out, err := gitRun(repo, "log", "--branches", "--tags", "--remotes",
+	out, err := gitRun(repo, "-c", "core.quotePath=false",
+		"log", "--branches", "--tags", "--remotes",
 		"--reverse", "--no-renames", "--no-abbrev", "--diff-filter=AM",
 		"--no-color", "--format="+hdr+"%an"+fieldSep+"%ae", "--raw")
 	if err != nil {
 		return blobScan{}, err
 	}
+	head := headBlobs(repo)
 
 	bySha := map[string]blobRef{}
 	var shas []string
@@ -392,6 +436,11 @@ func scanBlobs(repo string) (blobScan, error) {
 			meta, path, ok := strings.Cut(line, "\t")
 			if !ok {
 				continue
+			}
+			if strings.HasPrefix(path, `"`) {
+				if uq, e := strconv.Unquote(path); e == nil {
+					path = uq
+				}
 			}
 			cols := strings.Fields(meta)
 			if len(cols) < 5 {
@@ -416,7 +465,8 @@ func scanBlobs(repo string) (blobScan, error) {
 		if filepath.Base(ref.path) == ".DS_Store" {
 			if names := dsstore.Names(content); len(names) > 0 {
 				scan.dsStores = append(scan.dsStores, dsStoreLeak{
-					path: ref.path, byName: ref.byName, byEmail: ref.byEmail, names: names,
+					path: ref.path, disk: linkTarget(repo, ref.path, sha, content, false, head),
+					byName: ref.byName, byEmail: ref.byEmail, names: names,
 				})
 			}
 			return
@@ -427,6 +477,7 @@ func scanBlobs(repo string) (blobScan, error) {
 			// a supported image type: inspected, whether or not it had EXIF
 			if m := readEXIF(ref.path, content); !m.empty() {
 				m.byName, m.byEmail = ref.byName, ref.byEmail
+				m.disk = linkTarget(repo, ref.path, sha, content, true, head)
 				scan.images = append(scan.images, m)
 			}
 			return
@@ -434,6 +485,7 @@ func scanBlobs(repo string) (blobScan, error) {
 		scan.uninspected[ext]++ // a binary format git-footprint does not read
 	})
 
+	scan.images = dedupeImages(scan.images)
 	sort.SliceStable(scan.images, func(i, j int) bool {
 		if scan.images[i].revealing() != scan.images[j].revealing() {
 			return scan.images[i].revealing()
@@ -444,6 +496,21 @@ func scanBlobs(repo string) (blobScan, error) {
 		return scan.dsStores[i].path < scan.dsStores[j].path
 	})
 	return scan, err
+}
+
+func dedupeImages(in []imageMeta) []imageMeta {
+	type key struct{ path, byName, byEmail, gps, creator, camera, taken string }
+	seen := map[key]bool{}
+	var out []imageMeta
+	for _, m := range in {
+		k := key{m.path, m.byName, m.byEmail, m.gps, m.creator, m.camera, m.taken}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, m)
+	}
+	return out
 }
 
 func looksBinary(b []byte) bool {
@@ -534,6 +601,14 @@ const (
 type painter struct {
 	w     io.Writer
 	color bool
+}
+
+func (pt painter) link(text, target string) string { // OSC 8 hyperlink
+	if !pt.color || target == "" {
+		return text
+	}
+	uri := (&url.URL{Scheme: "file", Path: target}).String()
+	return "\x1b]8;;" + uri + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }
 
 func (pt painter) put(text string, codes ...string) {
@@ -697,7 +772,7 @@ func dsLine(pt painter, d dsStoreLeak) {
 	if len(head) > show {
 		head = head[:show]
 	}
-	s := "    ⚠ " + d.path + "  ·  " +
+	s := "    ⚠ " + pt.link(d.path, d.disk) + "  ·  " +
 		plural(len(d.names), "$1 name", "$1 names") + ": " + strings.Join(head, ", ")
 	if len(d.names) > show {
 		s += fmt.Sprintf(", +%d more", len(d.names)-show)
@@ -757,5 +832,5 @@ func imageLine(pt painter, m imageMeta) {
 	if m.taken != "" {
 		parts = append(parts, m.taken)
 	}
-	pt.put("    "+marker+m.path+"  ·  "+strings.Join(parts, "  ·  ")+"\n", code)
+	pt.put("    "+marker+pt.link(m.path, m.disk)+"  ·  "+strings.Join(parts, "  ·  ")+"\n", code)
 }
