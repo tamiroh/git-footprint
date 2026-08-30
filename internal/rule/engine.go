@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
 )
@@ -32,10 +33,15 @@ type Engine struct {
 	root  string
 	rules []Rule
 	head  map[string]string
+	links bool // extract historical bytes so hyperlinks resolve (interactive only)
+	swept bool
 }
 
-func NewEngine(root string, rules []Rule) *Engine {
-	return &Engine{root: root, rules: rules, head: gitcmd.HeadBlobs(root)}
+// NewEngine builds the engine. links should be true only when the report will
+// render clickable hyperlinks, since resolving them extracts copies of the
+// leaking files to a temp dir.
+func NewEngine(root string, rules []Rule, links bool) *Engine {
+	return &Engine{root: root, rules: rules, head: gitcmd.HeadBlobs(root), links: links}
 }
 
 const (
@@ -46,7 +52,7 @@ const (
 // Run walks every blob ever added or changed and returns the collected findings.
 func (e *Engine) Run() (Result, error) {
 	out, err := gitcmd.Run(e.root, "-c", "core.quotePath=false",
-		"log", "--branches", "--tags", "--remotes",
+		"log", "HEAD", "--branches", "--tags", "--remotes",
 		"--reverse", "--no-renames", "--no-abbrev", "--diff-filter=AM",
 		"--no-color", "--format="+logRec+"%an"+fieldSep+"%ae", "--raw")
 	if err != nil {
@@ -137,13 +143,16 @@ func (c *engineCtx) Inspect(b Blob) {
 }
 
 func (c *engineCtx) Link(b Blob, extract bool) string {
+	if !c.eng.links {
+		return ""
+	}
 	if b.SHA != "" && c.eng.head[b.Path] == b.SHA {
 		return filepath.Join(c.eng.root, b.Path)
 	}
 	if !extract {
 		return ""
 	}
-	return tempExtract(tempName(b), b.Content)
+	return c.eng.extract(b)
 }
 
 func looksBinary(b []byte) bool {
@@ -153,35 +162,58 @@ func looksBinary(b []byte) bool {
 	return bytes.IndexByte(b, 0) >= 0
 }
 
-// tempName is the basename for a temp extract: the sha12 prefix keeps copies of
-// distinct blobs apart; an archive entry's sub-path is flattened.
-func tempName(b Blob) string {
+const tempTTL = time.Hour
+
+// extract writes a blob's bytes to a fresh private file under
+// $TMPDIR/git-footprint/ so a hyperlink can open bytes no longer in the working
+// tree. Files older than one run are swept first; anything left is a copy of a
+// leaking file, so the name carries no more than the report already shows.
+func (e *Engine) extract(b Blob) string {
+	dir := filepath.Join(os.TempDir(), "git-footprint")
+	if os.MkdirAll(dir, 0o700) != nil {
+		return ""
+	}
+	if !e.swept {
+		e.swept = true
+		sweep(dir)
+	}
+	base, ext := tempStem(b)
+	f, err := os.CreateTemp(dir, base+"-*"+ext) // 0600, unpredictable suffix
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if _, err := f.Write(b.Content); err != nil {
+		os.Remove(f.Name())
+		return ""
+	}
+	return f.Name()
+}
+
+// tempStem splits a recognisable prefix and the extension for the temp name.
+func tempStem(b Blob) (base, ext string) {
 	name := b.Path
 	if i := strings.LastIndex(name, " » "); i >= 0 {
 		name = name[i+len(" » "):]
-	} else {
-		name = filepath.Base(name)
 	}
+	name = filepath.Base(name)
 	name = strings.NewReplacer("/", "-", `\`, "-", "..", "").Replace(name)
-	if r := []rune(name); len(r) > 100 {
-		name = string(r[len(r)-100:])
+	ext = filepath.Ext(name)
+	name = strings.TrimSuffix(name, ext)
+	if r := []rune(name); len(r) > 60 {
+		name = string(r[len(r)-60:])
 	}
 	if len(b.SHA) >= 12 {
-		return b.SHA[:12] + "-" + name
+		name = b.SHA[:12] + "-" + name
 	}
-	return name
+	return name, ext
 }
 
-func tempExtract(name string, content []byte) string {
-	dir := filepath.Join(os.TempDir(), "git-footprint")
-	if os.MkdirAll(dir, 0o755) != nil {
-		return ""
-	}
-	tmp := filepath.Join(dir, name)
-	if _, err := os.Stat(tmp); err != nil {
-		if os.WriteFile(tmp, content, 0o644) != nil {
-			return ""
+func sweep(dir string) {
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > tempTTL {
+			os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
-	return tmp
 }

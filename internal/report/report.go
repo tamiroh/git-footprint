@@ -113,15 +113,25 @@ func headerBox(pt painter, title string, lines ...string) {
 	pt.put("╰"+rule+"╯\n\n", ansiDim)
 }
 
-// ruleRank fixes the order findings from different rules appear in, both under a
-// contributor and in the orphan section.
-var ruleRank = map[string]int{"metadata": 0, "dsstore": 1}
+// rank fixes the order findings from different rules appear in, both under a
+// contributor and in the orphan section. Unknown (future) rules sort last.
+func rank(ruleName string) int {
+	if r, ok := map[string]int{"metadata": 0, "dsstore": 1}[ruleName]; ok {
+		return r
+	}
+	return 99
+}
 
 // orphanTitle names the section for findings whose introducing author is not a
 // listed identity (they came in through a merge).
-var orphanTitle = map[string]string{
-	"metadata": "media not tied to a listed identity",
-	"dsstore":  ".DS_Store files not tied to a listed identity",
+func orphanTitle(ruleName string) string {
+	if t, ok := map[string]string{
+		"metadata": "media not tied to a listed identity",
+		"dsstore":  ".DS_Store files not tied to a listed identity",
+	}[ruleName]; ok {
+		return t
+	}
+	return ruleName + " findings not tied to a listed identity"
 }
 
 // Render writes the footprint report for fp and res to w.
@@ -166,13 +176,10 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 	for _, fs := range byWho {
 		orphans = append(orphans, fs...)
 	}
-	for _, name := range []string{"metadata", "dsstore"} {
+	for _, name := range ruleOrder(orphans) {
 		sub := ofRule(orphans, name)
-		if len(sub) == 0 {
-			continue
-		}
 		sort.SliceStable(sub, func(i, j int) bool { return sub[i].Path < sub[j].Path })
-		pt.put("\n"+orphanTitle[name]+"\n", ansiBold)
+		pt.put("\n"+orphanTitle(name)+"\n", ansiBold)
 		for _, f := range sub {
 			findingBlock(pt, f)
 		}
@@ -189,7 +196,7 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 func sortFindings(in []rule.Finding) []rule.Finding {
 	out := append([]rule.Finding(nil), in...)
 	sort.SliceStable(out, func(i, j int) bool {
-		if a, b := ruleRank[out[i].Rule], ruleRank[out[j].Rule]; a != b {
+		if a, b := rank(out[i].Rule), rank(out[j].Rule); a != b {
 			return a < b
 		}
 		if out[i].Level != out[j].Level {
@@ -198,6 +205,25 @@ func sortFindings(in []rule.Finding) []rule.Finding {
 		return out[i].Path < out[j].Path
 	})
 	return out
+}
+
+// ruleOrder lists the distinct rule names present in fs, ranked order.
+func ruleOrder(fs []rule.Finding) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, f := range fs {
+		if !seen[f.Rule] {
+			seen[f.Rule] = true
+			names = append(names, f.Rule)
+		}
+	}
+	sort.SliceStable(names, func(i, j int) bool {
+		if a, b := rank(names[i]), rank(names[j]); a != b {
+			return a < b
+		}
+		return names[i] < names[j]
+	})
+	return names
 }
 
 func ofRule(in []rule.Finding, name string) []rule.Finding {
@@ -223,7 +249,11 @@ func findingBlock(pt painter, f rule.Finding) {
 			pt.put("        " + fld.Value + "\n")
 			continue
 		}
-		pt.put("        "+fld.Label+strings.Repeat(" ", 10-len(fld.Label)), ansiDim)
+		gap := 10 - len(fld.Label)
+		if gap < 1 {
+			gap = 1
+		}
+		pt.put("        "+fld.Label+strings.Repeat(" ", gap), ansiDim)
 		pt.put(fld.Value + "\n")
 	}
 }
