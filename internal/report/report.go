@@ -126,7 +126,7 @@ func headerBox(pt painter, title string, lines ...string) {
 // Render writes the footprint report for fp and s to w.
 func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, color bool) {
 	pt := painter{w: w, color: color}
-	images := s.Images
+	media := s.Media
 
 	headerBox(pt,
 		"git-footprint",
@@ -135,8 +135,8 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 			plural(len(fp.Identities), "$1 identity", "$1 identities"),
 	)
 
-	byWho := map[[2]string][]scan.Image{}
-	for _, m := range images {
+	byWho := map[[2]string][]scan.Media{}
+	for _, m := range media {
 		k := [2]string{m.ByName, m.ByEmail}
 		byWho[k] = append(byWho[k], m)
 	}
@@ -169,7 +169,7 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 			if m.Revealing() {
 				revealing++
 			}
-			imageLine(pt, m)
+			mediaLine(pt, m)
 		}
 		for _, d := range dsByWho[k] {
 			dsLine(pt, d)
@@ -180,18 +180,18 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 		pt.put("\n")
 	}
 
-	var orphan []scan.Image
+	var orphan []scan.Media
 	for _, ms := range byWho {
 		orphan = append(orphan, ms...)
 	}
 	if len(orphan) > 0 {
 		sort.SliceStable(orphan, func(i, j int) bool { return orphan[i].Path < orphan[j].Path })
-		pt.put("\nimages not tied to a listed identity\n", ansiBold)
+		pt.put("\nmedia not tied to a listed identity\n", ansiBold)
 		for _, m := range orphan {
 			if m.Revealing() {
 				revealing++
 			}
-			imageLine(pt, m)
+			mediaLine(pt, m)
 		}
 	}
 
@@ -207,8 +207,8 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 		}
 	}
 
-	if len(images) > 0 {
-		line := plural(len(images), "$1 image carries EXIF metadata", "$1 images carry EXIF metadata")
+	if len(media) > 0 {
+		line := plural(len(media), "$1 file carries embedded metadata", "$1 files carry embedded metadata")
 		if revealing > 0 {
 			pt.put(line+" ("+plural(revealing, "$1 reveals", "$1 reveal")+
 				" a location or creator)\n", ansiYellow)
@@ -234,7 +234,7 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 	}
 }
 
-func imageLine(pt painter, m scan.Image) {
+func mediaLine(pt painter, m scan.Media) {
 	marker, code := "● ", ""
 	if m.Revealing() {
 		marker, code = "⚠ ", ansiYellow

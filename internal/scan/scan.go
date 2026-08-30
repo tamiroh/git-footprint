@@ -1,5 +1,6 @@
 // Package scan walks a repository's blob history and pulls the findings out of
-// each blob: image EXIF, .DS_Store names, and a tally of unreadable binaries.
+// each blob: image and video metadata, .DS_Store names, and a tally of
+// unreadable binaries.
 package scan
 
 import (
@@ -11,14 +12,14 @@ import (
 	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/dsstore"
-	"github.com/tamiroh/git-footprint/internal/exif"
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
+	"github.com/tamiroh/git-footprint/internal/meta"
 )
 
 const fieldSep = "\x1f" // ASCII Unit Separator
 
-type Image struct {
-	exif.Data
+type Media struct {
+	meta.Data
 	Path    string
 	Disk    string // abs path a hyperlink should open (working tree, or a temp extract)
 	ByName  string // author of the commit that introduced this blob
@@ -33,7 +34,7 @@ type DSStore struct {
 }
 
 type Result struct {
-	Images      []Image
+	Media       []Media
 	DSStores    []DSStore
 	Uninspected map[string]int // extension -> count of binary blobs nothing was read from
 }
@@ -88,7 +89,7 @@ func Blobs(repo string) (Result, error) {
 				name, email = f[0], strings.ToLower(f[1])
 			}
 		case strings.HasPrefix(line, ":"):
-			meta, path, ok := strings.Cut(line, "\t")
+			info, path, ok := strings.Cut(line, "\t")
 			if !ok {
 				continue
 			}
@@ -97,7 +98,7 @@ func Blobs(repo string) (Result, error) {
 					path = uq
 				}
 			}
-			cols := strings.Fields(meta)
+			cols := strings.Fields(info)
 			if len(cols) < 5 {
 				continue
 			}
@@ -128,10 +129,10 @@ func Blobs(repo string) (Result, error) {
 		}
 
 		ext := strings.ToLower(filepath.Ext(ref.path))
-		if exif.IsImage(ref.path) {
-			// a supported image type: inspected, whether or not it had EXIF
-			if d := exif.Read(content); !d.Empty() {
-				res.Images = append(res.Images, Image{
+		if meta.IsMedia(ref.path) {
+			// a supported image or video type: inspected, with or without metadata
+			if d := meta.Read(ref.path, content); !d.Empty() {
+				res.Media = append(res.Media, Media{
 					Data: d, Path: ref.path, ByName: ref.byName, ByEmail: ref.byEmail,
 					Disk: linkTarget(repo, ref.path, sha, content, true, head),
 				})
@@ -141,12 +142,12 @@ func Blobs(repo string) (Result, error) {
 		res.Uninspected[ext]++ // a binary format git-footprint does not read
 	})
 
-	res.Images = dedupeImages(res.Images)
-	sort.SliceStable(res.Images, func(i, j int) bool {
-		if res.Images[i].Revealing() != res.Images[j].Revealing() {
-			return res.Images[i].Revealing()
+	res.Media = dedupeMedia(res.Media)
+	sort.SliceStable(res.Media, func(i, j int) bool {
+		if res.Media[i].Revealing() != res.Media[j].Revealing() {
+			return res.Media[i].Revealing()
 		}
-		return res.Images[i].Path < res.Images[j].Path
+		return res.Media[i].Path < res.Media[j].Path
 	})
 	sort.SliceStable(res.DSStores, func(i, j int) bool {
 		return res.DSStores[i].Path < res.DSStores[j].Path
@@ -154,10 +155,10 @@ func Blobs(repo string) (Result, error) {
 	return res, err
 }
 
-func dedupeImages(in []Image) []Image {
+func dedupeMedia(in []Media) []Media {
 	type key struct{ path, byName, byEmail, gps, creator, camera, taken string }
 	seen := map[key]bool{}
-	var out []Image
+	var out []Media
 	for _, m := range in {
 		k := key{m.Path, m.ByName, m.ByEmail, m.GPS, m.Creator, m.Camera, m.Taken}
 		if seen[k] {

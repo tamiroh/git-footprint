@@ -8,7 +8,7 @@ Check what your git history reveals about you before you make a repository publi
 go install github.com/tamiroh/git-footprint@latest
 ```
 
-Needs Go 1.23+ and `git`.
+Needs Go 1.24+ and `git`.
 
 ## Usage
 
@@ -24,8 +24,8 @@ paged through `$PAGER` (default `less`); `--no-pager` disables that.
 Today `git-footprint` reports, per contributor:
 
 - every author/committer identity in the history
-- EXIF metadata (location, creator, camera) of any committed image — JPEG, PNG,
-  TIFF, HEIC/AVIF, camera RAW
+- embedded metadata (location, creator, camera, capture time) of any committed
+  image — JPEG, PNG, TIFF, HEIC/AVIF, camera RAW — or video — MP4, MOV
 - the file/folder names a committed `.DS_Store` leaks
 
 Planned:

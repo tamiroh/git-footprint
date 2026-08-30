@@ -124,9 +124,9 @@ func usage() {
 	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--color] [--no-pager] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
-public. Per contributor: every identity in the history, the EXIF metadata
-(location, creator, camera) of any image they committed, and the file names a
-committed .DS_Store leaks.
+public. Per contributor: every identity in the history, the embedded metadata
+(location, creator, camera, capture time) of any image or video they committed,
+and the file names a committed .DS_Store leaks.
 
 REPO defaults to the current directory.
 `)
