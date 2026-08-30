@@ -210,10 +210,9 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 	if len(media) > 0 {
 		line := plural(len(media), "$1 file carries embedded metadata", "$1 files carry embedded metadata")
 		if revealing > 0 {
-			pt.put(line+" ("+plural(revealing, "$1 reveals", "$1 reveal")+
-				" a location or creator)\n", ansiYellow)
+			recap(pt, true, line+" ("+plural(revealing, "$1 reveals", "$1 reveal")+" a location or creator)")
 		} else {
-			pt.put(line + "\n")
+			recap(pt, false, line)
 		}
 	}
 
@@ -222,24 +221,34 @@ func Render(w io.Writer, fp identity.Footprint, s scan.Result, repo string, colo
 		for _, d := range s.DSStores {
 			nameCount += len(d.Names)
 		}
-		pt.put(plural(n, "$1 committed .DS_Store", "$1 committed .DS_Store files")+
-			" leaking "+plural(nameCount, "$1 file/folder name", "$1 file/folder names")+"\n",
-			ansiYellow)
+		recap(pt, true, plural(n, "$1 committed .DS_Store", "$1 committed .DS_Store files")+
+			" leaking "+plural(nameCount, "$1 file/folder name", "$1 file/folder names"))
 	}
 
 	if n := total(s.Uninspected); n > 0 {
-		pt.put("not read (unsupported format): "+
-			plural(n, "$1 binary file", "$1 binary files")+
-			"  ·  "+extBreakdown(s.Uninspected)+"\n", ansiDim)
+		recap(pt, false, plural(n, "$1 file", "$1 files")+
+			" not read (unsupported format)  ·  "+extBreakdown(s.Uninspected))
+	}
+}
+
+// recap prints a bottom-of-report summary line, tagged [WARN] or [INFO].
+func recap(pt painter, warn bool, text string) {
+	if warn {
+		pt.put("[WARN]  ", ansiYellow)
+		pt.put(text+"\n", ansiYellow)
+	} else {
+		pt.put("[INFO]  ", ansiDim)
+		pt.put(text+"\n", ansiDim)
 	}
 }
 
 func mediaLine(pt painter, m scan.Media) {
-	marker, code := "● ", ""
+	label, labelCode, lineCode := "[INFO]", ansiDim, ""
 	if m.Revealing() {
-		marker, code = "⚠ ", ansiYellow
+		label, labelCode, lineCode = "[WARN]", ansiYellow, ansiYellow
 	}
-	pt.put("    "+marker+pt.link(m.Path, m.Disk)+"\n", code)
+	pt.put("    "+label+"  ", labelCode)
+	pt.put(pt.link(m.Path, m.Disk)+"\n", lineCode)
 
 	for _, f := range [][2]string{
 		{"location", m.GPS},
@@ -262,7 +271,8 @@ func dsLine(pt painter, d scan.DSStore) {
 	if len(head) > show {
 		head = head[:show]
 	}
-	pt.put("    ⚠ "+pt.link(d.Path, d.Disk)+"\n", ansiYellow)
+	pt.put("    [WARN]  ", ansiYellow)
+	pt.put(pt.link(d.Path, d.Disk)+"\n", ansiYellow)
 	line := "        " + plural(len(d.Names), "$1 name", "$1 names") + ": " + strings.Join(head, ", ")
 	if len(d.Names) > show {
 		line += fmt.Sprintf(", +%d more", len(d.Names)-show)
