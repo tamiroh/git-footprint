@@ -1,5 +1,5 @@
 // Package scan walks a repository's blob history and pulls the findings out of
-// each blob: image and video metadata, .DS_Store names, and a tally of
+// each blob: image, video and PDF metadata, .DS_Store names, and a tally of
 // unreadable binaries.
 package scan
 
@@ -113,9 +113,6 @@ func Blobs(repo string) (Result, error) {
 
 	res := Result{Uninspected: map[string]int{}}
 	err = gitcmd.CatFileBatch(repo, shas, func(sha string, content []byte) {
-		if !looksBinary(content) {
-			return
-		}
 		ref := bySha[sha]
 
 		if filepath.Base(ref.path) == ".DS_Store" {
@@ -128,9 +125,8 @@ func Blobs(repo string) (Result, error) {
 			return
 		}
 
-		ext := strings.ToLower(filepath.Ext(ref.path))
-		if meta.IsMedia(ref.path) {
-			// a supported image or video type: inspected, with or without metadata
+		if meta.Handles(ref.path) {
+			// a supported type: inspected, with or without embedded metadata
 			if d := meta.Read(ref.path, content); !d.Empty() {
 				res.Media = append(res.Media, Media{
 					Data: d, Path: ref.path, ByName: ref.byName, ByEmail: ref.byEmail,
@@ -139,7 +135,11 @@ func Blobs(repo string) (Result, error) {
 			}
 			return
 		}
-		res.Uninspected[ext]++ // a binary format git-footprint does not read
+
+		if looksBinary(content) {
+			ext := strings.ToLower(filepath.Ext(ref.path))
+			res.Uninspected[ext]++ // a binary format git-footprint does not read
+		}
 	})
 
 	res.Media = dedupeMedia(res.Media)
@@ -156,11 +156,11 @@ func Blobs(repo string) (Result, error) {
 }
 
 func dedupeMedia(in []Media) []Media {
-	type key struct{ path, byName, byEmail, gps, creator, camera, taken string }
+	type key struct{ path, byName, byEmail, gps, creator, camera, software, taken string }
 	seen := map[key]bool{}
 	var out []Media
 	for _, m := range in {
-		k := key{m.Path, m.ByName, m.ByEmail, m.GPS, m.Creator, m.Camera, m.Taken}
+		k := key{m.Path, m.ByName, m.ByEmail, m.GPS, m.Creator, m.Camera, m.Software, m.Taken}
 		if seen[k] {
 			continue
 		}

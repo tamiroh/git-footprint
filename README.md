@@ -24,12 +24,13 @@ paged through `$PAGER` (default `less`); `--no-pager` disables that.
 Today `git-footprint` reports, per contributor:
 
 - every author/committer identity in the history
-- embedded metadata (location, creator, camera, capture time) of any committed
-  image — JPEG, PNG, TIFF, HEIC/AVIF, camera RAW — or video — MP4, MOV
+- embedded metadata (location, creator, camera, software, capture time) of any
+  committed image (JPEG, PNG, TIFF, HEIC/AVIF, camera RAW), video (MP4, MOV) or
+  PDF
 - the file/folder names a committed `.DS_Store` leaks
 
 Planned:
 
 - real names and internal hostnames leaked in file paths and configs
-- PDF and Office document metadata
+- Office document metadata
 - content PII (addresses, phone numbers, national ID numbers)

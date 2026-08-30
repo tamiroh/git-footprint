@@ -249,6 +249,9 @@ func mediaLine(pt painter, m scan.Media) {
 	if m.Camera != "" {
 		parts = append(parts, m.Camera)
 	}
+	if m.Software != "" {
+		parts = append(parts, m.Software)
+	}
 	if m.Taken != "" {
 		parts = append(parts, m.Taken)
 	}

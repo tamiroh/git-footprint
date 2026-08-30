@@ -1,5 +1,5 @@
 // Package meta extracts identifying metadata (location, creator, device,
-// capture time) from committed image and video blobs.
+// software, capture time) from committed image, video and PDF blobs.
 package meta
 
 import (
@@ -13,12 +13,14 @@ import (
 
 	"github.com/abema/go-mp4"
 	"github.com/evanoberholster/imagemeta"
+	"rsc.io/pdf"
 )
 
 var (
 	imageExts = set(".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".tif", ".tiff",
 		".dng", ".heic", ".heif", ".avif", ".cr2", ".cr3", ".crw", ".arw", ".nef")
 	videoExts = set(".mp4", ".m4v", ".mov", ".qt")
+	docExts   = set(".pdf")
 )
 
 func set(xs ...string) map[string]bool {
@@ -33,28 +35,32 @@ func ext(path string) string { return strings.ToLower(filepath.Ext(path)) }
 
 func IsImage(path string) bool { return imageExts[ext(path)] }
 func IsVideo(path string) bool { return videoExts[ext(path)] }
-func IsMedia(path string) bool { return IsImage(path) || IsVideo(path) }
+func IsDoc(path string) bool   { return docExts[ext(path)] }
+func Handles(path string) bool { return IsImage(path) || IsVideo(path) || IsDoc(path) }
 
 type Data struct {
-	GPS     string // "lat, long"
-	Creator string // Artist / author / copyright
-	Camera  string // "Make Model"
-	Taken   string // "2006-01-02 15:04:05"
+	GPS      string // "lat, long"
+	Creator  string // Artist / author / copyright
+	Camera   string // "Make Model"
+	Software string // authoring application or OS
+	Taken    string // "2006-01-02 15:04:05"
 }
 
 func (d Data) Empty() bool {
-	return d.GPS == "" && d.Creator == "" && d.Camera == "" && d.Taken == ""
+	return d.GPS == "" && d.Creator == "" && d.Camera == "" && d.Software == "" && d.Taken == ""
 }
 
 func (d Data) Revealing() bool { return d.GPS != "" || d.Creator != "" }
 
-// Read pulls metadata from a media blob, dispatching on the path's extension.
+// Read pulls metadata from a committed blob, dispatching on the path's extension.
 func Read(path string, blob []byte) Data {
 	switch {
 	case IsVideo(path):
 		return readVideo(blob)
 	case IsImage(path):
 		return readImage(blob)
+	case IsDoc(path):
+		return readPDF(blob)
 	default:
 		return Data{}
 	}
@@ -245,6 +251,53 @@ func readRaw(h *mp4.ReadHandle) []byte {
 		return nil
 	}
 	return buf.Bytes()
+}
+
+// --- pdf ----------------------------------------------------------------
+
+// readPDF pulls the author, authoring software and creation date from a PDF's
+// Info dictionary.
+func readPDF(blob []byte) (d Data) {
+	defer func() { _ = recover() }()
+	r, err := pdf.NewReader(bytes.NewReader(blob), int64(len(blob)))
+	if err != nil {
+		return
+	}
+	info := r.Trailer().Key("Info")
+	d.Creator = clean(info.Key("Author").Text())
+	d.Software = pdfSoftware(clean(info.Key("Creator").Text()), clean(info.Key("Producer").Text()))
+	d.Taken = pdfDate(info.Key("CreationDate").Text())
+	return
+}
+
+func pdfSoftware(creator, producer string) string {
+	switch {
+	case creator == "":
+		return producer
+	case producer == "":
+		return creator
+	case strings.Contains(strings.ToLower(producer), strings.ToLower(creator)):
+		return producer
+	default:
+		return creator + " / " + producer
+	}
+}
+
+// pdfDate parses a PDF date string, "D:20240115093000+09'00'" style.
+func pdfDate(s string) string {
+	s = strings.TrimPrefix(s, "D:")
+	digits := 0
+	for digits < len(s) && s[digits] >= '0' && s[digits] <= '9' {
+		digits++
+	}
+	for _, layout := range []string{"20060102150405", "200601021504", "2006010215", "20060102"} {
+		if len(layout) <= digits {
+			if t, err := time.Parse(layout, s[:len(layout)]); err == nil {
+				return t.Format("2006-01-02 15:04:05")
+			}
+		}
+	}
+	return ""
 }
 
 // parseISO6709 parses "+37.4219-122.0840+010.000/" style coordinates.

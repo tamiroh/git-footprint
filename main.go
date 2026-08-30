@@ -125,8 +125,8 @@ func usage() {
 
 Check what your git history reveals about you before you make a repository
 public. Per contributor: every identity in the history, the embedded metadata
-(location, creator, camera, capture time) of any image or video they committed,
-and the file names a committed .DS_Store leaks.
+(location, creator, camera, software, capture time) of any image, video or PDF
+they committed, and the file names a committed .DS_Store leaks.
 
 REPO defaults to the current directory.
 `)
