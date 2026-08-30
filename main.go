@@ -108,7 +108,10 @@ func startPager(enabled bool) (io.Writer, func()) {
 
 	cmd := exec.Command("sh", "-c", name)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "LESS=FRX")
+	cmd.Env = os.Environ()
+	if os.Getenv("LESS") == "" {
+		cmd.Env = append(cmd.Env, "LESS=FR")
+	}
 	w, err := cmd.StdinPipe()
 	if err != nil {
 		return os.Stdout, func() {}
