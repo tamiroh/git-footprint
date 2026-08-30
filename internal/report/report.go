@@ -239,23 +239,21 @@ func mediaLine(pt painter, m scan.Media) {
 	if m.Revealing() {
 		marker, code = "⚠ ", ansiYellow
 	}
-	var parts []string
-	if m.GPS != "" {
-		parts = append(parts, "location "+m.GPS)
+	pt.put("    "+marker+pt.link(m.Path, m.Disk)+"\n", code)
+
+	for _, f := range [][2]string{
+		{"location", m.GPS},
+		{"creator", m.Creator},
+		{"device", m.Camera},
+		{"software", m.Software},
+		{"date", m.Taken},
+	} {
+		if f[1] == "" {
+			continue
+		}
+		pt.put("        "+f[0]+strings.Repeat(" ", 10-len(f[0])), ansiDim)
+		pt.put(f[1] + "\n")
 	}
-	if m.Creator != "" {
-		parts = append(parts, "creator "+m.Creator)
-	}
-	if m.Camera != "" {
-		parts = append(parts, m.Camera)
-	}
-	if m.Software != "" {
-		parts = append(parts, m.Software)
-	}
-	if m.Taken != "" {
-		parts = append(parts, m.Taken)
-	}
-	pt.put("    "+marker+pt.link(m.Path, m.Disk)+"  ·  "+strings.Join(parts, "  ·  ")+"\n", code)
 }
 
 func dsLine(pt painter, d scan.DSStore) {
@@ -264,12 +262,12 @@ func dsLine(pt painter, d scan.DSStore) {
 	if len(head) > show {
 		head = head[:show]
 	}
-	s := "    ⚠ " + pt.link(d.Path, d.Disk) + "  ·  " +
-		plural(len(d.Names), "$1 name", "$1 names") + ": " + strings.Join(head, ", ")
+	pt.put("    ⚠ "+pt.link(d.Path, d.Disk)+"\n", ansiYellow)
+	line := "        " + plural(len(d.Names), "$1 name", "$1 names") + ": " + strings.Join(head, ", ")
 	if len(d.Names) > show {
-		s += fmt.Sprintf(", +%d more", len(d.Names)-show)
+		line += fmt.Sprintf(", +%d more", len(d.Names)-show)
 	}
-	pt.put(s+"\n", ansiYellow)
+	pt.put(line + "\n")
 }
 
 func total(m map[string]int) int {
