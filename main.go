@@ -28,6 +28,8 @@ func main() {
 
 func run() int {
 	noColor := flag.Bool("no-color", false, "never colourise output")
+	forceColor := flag.Bool("color", false, "colourise output even when not a terminal")
+	noPager := flag.Bool("no-pager", false, "do not page output through $PAGER")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = usage
 	flag.Parse()
@@ -77,20 +79,50 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "blob scan incomplete:", err)
 	}
 
-	render(os.Stdout, fp, scan, root, useColor(*noColor))
+	tty := isTerminal(os.Stdout)
+	color := (tty || *forceColor) && !*noColor
+
+	out, closePager := startPager(tty && !*noPager)
+	defer closePager()
+	render(out, fp, scan, root, color)
 	return 0
 }
 
-func useColor(noColor bool) bool {
-	if noColor {
-		return false
-	}
-	fi, err := os.Stdout.Stat()
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
+func startPager(enabled bool) (io.Writer, func()) {
+	if !enabled {
+		return os.Stdout, func() {}
+	}
+	name := os.Getenv("PAGER")
+	if name == "" {
+		name = "less"
+	}
+	if name == "cat" {
+		return os.Stdout, func() {}
+	}
+
+	cmd := exec.Command("sh", "-c", name)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.Env = append(os.Environ(), "LESS=FRX")
+	w, err := cmd.StdinPipe()
+	if err != nil {
+		return os.Stdout, func() {}
+	}
+	if err := cmd.Start(); err != nil {
+		return os.Stdout, func() {}
+	}
+	return w, func() {
+		w.Close()
+		cmd.Wait()
+	}
+}
+
 func usage() {
-	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--version] [REPO]
+	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--color] [--no-pager] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
 public. Per contributor: every identity in the history, the EXIF metadata
