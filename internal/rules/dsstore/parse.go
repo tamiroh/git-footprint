@@ -1,11 +1,9 @@
-// Package dsstore reads the file and folder names recorded in a macOS
-// .DS_Store file.
-//
+package dsstore
+
 // A .DS_Store is a "buddy allocator" container holding a B-tree of Finder
 // view-setting records, one or more per name. The names are what leaks: every
-// sibling file and folder that was present when Finder last wrote the file,
-// including ones since deleted.
-package dsstore
+// sibling file and folder present when Finder last wrote the file, including
+// ones since deleted.
 
 import (
 	"encoding/binary"
@@ -13,9 +11,9 @@ import (
 	"unicode/utf16"
 )
 
-// Names returns the distinct file/folder names a .DS_Store recorded, sorted.
-// Anything unexpected in the bytes yields nil rather than an error or panic.
-func Names(b []byte) (names []string) {
+// parseNames returns the distinct file/folder names a .DS_Store recorded,
+// sorted. Anything unexpected in the bytes yields nil rather than a panic.
+func parseNames(b []byte) (names []string) {
 	defer func() { _ = recover() }()
 
 	if len(b) < 36 || string(b[4:8]) != "Bud1" {

@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	dsfile "github.com/tamiroh/git-footprint/internal/dsstore"
 	"github.com/tamiroh/git-footprint/internal/rule"
 )
 
@@ -30,7 +29,7 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 		return
 	}
 	ctx.Claim()
-	if names := dsfile.Names(b.Content); len(names) > 0 {
+	if names := parseNames(b.Content); len(names) > 0 {
 		r.items = append(r.items, item{b.Path, ctx.Link(b, false), b.By, names})
 	}
 }
