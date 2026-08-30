@@ -54,11 +54,8 @@ func plural(n int, one, many string) string {
 	return strings.ReplaceAll(form, "$1", fmt.Sprint(n))
 }
 
+// commitCount always shows both roles, so the column reads uniformly.
 func commitCount(id identity.Identity) string {
-	if id.AuthorCommits == id.CommitterCommits {
-		return plural(id.AuthorCommits, "$1 commit", "$1 commits")
-	}
-	// show both roles even at zero; an asymmetric "authored 1" reads worse
 	return fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
 }
 
