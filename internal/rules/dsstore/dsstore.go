@@ -24,6 +24,8 @@ func New() *Rule { return &Rule{} }
 
 func (r *Rule) Name() string { return "dsstore" }
 
+func (r *Rule) Wants(name string) bool { return filepath.Base(name) == ".DS_Store" }
+
 func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 	if filepath.Base(b.Name) != ".DS_Store" {
 		return

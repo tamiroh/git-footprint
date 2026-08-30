@@ -5,12 +5,11 @@ package metadata
 import (
 	"sort"
 
-	"github.com/tamiroh/git-footprint/internal/meta"
 	"github.com/tamiroh/git-footprint/internal/rule"
 )
 
 type item struct {
-	meta.Data
+	Data
 	path string
 	link string
 	by   rule.Author
@@ -23,13 +22,15 @@ func New() *Rule { return &Rule{} }
 
 func (r *Rule) Name() string { return "metadata" }
 
+func (r *Rule) Wants(name string) bool { return handles(name) }
+
 func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 	switch {
-	case meta.Inert(b.Name):
+	case inert(b.Name):
 		ctx.Claim() // recognised, nothing to read (icon files)
-	case meta.Handles(b.Name):
+	case handles(b.Name):
 		ctx.Claim()
-		if d := meta.Read(b.Name, b.Content); !d.Empty() {
+		if d := read(b.Name, b.Content); !d.Empty() {
 			r.items = append(r.items, item{d, b.Path, ctx.Link(b, true), b.By})
 		}
 	}

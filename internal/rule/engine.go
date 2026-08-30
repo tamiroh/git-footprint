@@ -119,6 +119,15 @@ type engineCtx struct {
 
 func (c *engineCtx) Claim() { c.claimed = true }
 
+func (c *engineCtx) Wants(name string) bool {
+	for _, ru := range c.eng.rules {
+		if w, ok := ru.(Wanter); ok && w.Wants(name) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *engineCtx) Inspect(b Blob) {
 	if c.blob.depth >= 1 {
 		return // one level of archives only

@@ -36,6 +36,7 @@ type Context interface {
 	Claim()                           // recognise the blob's format, so it isn't tallied as unread
 	Inspect(Blob)                     // feed a nested blob back through the rules (one level only)
 	Link(b Blob, extract bool) string // hyperlink target: working-tree file, temp copy, or ""
+	Wants(name string) bool           // would any rule inspect a file with this name? (archive filter)
 }
 
 // Rule detects one kind of finding. Visit runs per blob; Findings runs once
@@ -44,4 +45,10 @@ type Rule interface {
 	Name() string
 	Visit(ctx Context, b Blob)
 	Findings() []Finding
+}
+
+// Wanter is the optional half of Rule that lets the archive rule skip entries no
+// one cares about without decompressing them.
+type Wanter interface {
+	Wants(name string) bool
 }

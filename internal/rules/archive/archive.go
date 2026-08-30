@@ -1,15 +1,13 @@
 // Package archive is the rule that looks inside committed zip archives (which
-// includes .docx, .jar, .crx and friends), feeding their media, PDF and
-// .DS_Store entries back through the other rules.
+// includes .docx, .jar, .crx and friends), feeding every entry back through the
+// other rules.
 package archive
 
 import (
 	"archive/zip"
 	"bytes"
 	"io"
-	"path/filepath"
 
-	"github.com/tamiroh/git-footprint/internal/meta"
 	"github.com/tamiroh/git-footprint/internal/rule"
 )
 
@@ -38,9 +36,7 @@ func (Rule) Visit(ctx rule.Context, b rule.Blob) {
 
 	budget := int64(maxTotal)
 	for _, f := range zr.File {
-		base := filepath.Base(f.Name)
-		if f.FileInfo().IsDir() || f.UncompressedSize64 > maxEntry ||
-			(base != ".DS_Store" && !meta.Handles(f.Name)) {
+		if f.FileInfo().IsDir() || f.UncompressedSize64 > maxEntry || !ctx.Wants(f.Name) {
 			continue
 		}
 		data, err := readEntry(f)

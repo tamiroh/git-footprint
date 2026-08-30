@@ -1,6 +1,6 @@
-// Package meta extracts identifying metadata (location, creator, device,
-// software, capture time) from committed image, video and PDF blobs.
-package meta
+// This file wraps imagemeta, go-mp4 and rsc.io/pdf; the exported metadata rule
+// lives in metadata.go.
+package metadata
 
 import (
 	"bytes"
@@ -38,11 +38,11 @@ func set(xs ...string) map[string]bool {
 
 func ext(path string) string { return strings.ToLower(filepath.Ext(path)) }
 
-func IsImage(path string) bool { return imageExts[ext(path)] }
-func IsVideo(path string) bool { return videoExts[ext(path)] }
-func IsDoc(path string) bool   { return docExts[ext(path)] }
-func Handles(path string) bool { return IsImage(path) || IsVideo(path) || IsDoc(path) }
-func Inert(path string) bool   { return inertExts[ext(path)] }
+func isImage(path string) bool { return imageExts[ext(path)] }
+func isVideo(path string) bool { return videoExts[ext(path)] }
+func isDoc(path string) bool   { return docExts[ext(path)] }
+func handles(path string) bool { return isImage(path) || isVideo(path) || isDoc(path) }
+func inert(path string) bool   { return inertExts[ext(path)] }
 
 type Data struct {
 	GPS      string // "lat, long"
@@ -58,14 +58,14 @@ func (d Data) Empty() bool {
 
 func (d Data) Revealing() bool { return d.GPS != "" || d.Creator != "" }
 
-// Read pulls metadata from a committed blob, dispatching on the path's extension.
-func Read(path string, blob []byte) Data {
+// read pulls metadata from a committed blob, dispatching on the path's extension.
+func read(path string, blob []byte) Data {
 	switch {
-	case IsVideo(path):
+	case isVideo(path):
 		return readVideo(blob)
-	case IsImage(path):
+	case isImage(path):
 		return readImage(blob)
-	case IsDoc(path):
+	case isDoc(path):
 		return readPDF(blob)
 	default:
 		return Data{}
