@@ -95,7 +95,7 @@ func readImage(blob []byte) (d Data) {
 	}
 	d.Camera = cameraName(clean(x.CameraMake()), clean(x.IFD0.Model))
 	d.Software = clean(x.IFD0.Software) // OS version on phones, editor name on desktop
-	if t := x.OriginalDate(); !t.IsZero() {
+	if t := x.OriginalDate(); plausible(t) {
 		d.Taken = t.Format("2006-01-02 15:04:05")
 	}
 	return
@@ -189,9 +189,13 @@ func readVideo(blob []byte) (d Data) {
 					d.Taken = t // keep an earlier mvhd date if this one is unparseable
 				}
 			case strings.HasSuffix(key, ".make") || key == "\xa9mak":
-				mk = val
+				if mk == "" {
+					mk = val
+				}
 			case strings.HasSuffix(key, ".model") || key == "\xa9mod":
-				model = val
+				if model == "" {
+					model = val
+				}
 			case strings.HasSuffix(key, ".artist") || key == "\xa9ART" || key == "\xa9aut":
 				if d.Creator == "" {
 					d.Creator = clean(val)
@@ -214,8 +218,8 @@ func readVideo(blob []byte) (d Data) {
 			if d.Taken == "" {
 				if pl, _, err := h.ReadPayload(); err == nil {
 					if m, ok := pl.(*mp4.Mvhd); ok {
-						if s := mvhdSeconds(m); s > 0 {
-							d.Taken = time.Unix(s-2082844800, 0).UTC().Format("2006-01-02 15:04:05")
+						if u := time.Unix(mvhdSeconds(m)-2082844800, 0).UTC(); plausible(u) {
+							d.Taken = u.Format("2006-01-02 15:04:05")
 						}
 					}
 				}
@@ -303,7 +307,7 @@ func pdfDate(s string) string {
 	}
 	for _, layout := range []string{"20060102150405", "200601021504", "2006010215", "20060102"} {
 		if len(layout) <= digits {
-			if t, err := time.Parse(layout, s[:len(layout)]); err == nil {
+			if t, err := time.Parse(layout, s[:len(layout)]); err == nil && plausible(t) {
 				return t.Format("2006-01-02 15:04:05")
 			}
 		}
@@ -364,9 +368,15 @@ func normalizeTime(s string) string {
 		time.RFC3339, "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05Z",
 		"2006-01-02 15:04:05", "2006-01-02T15:04:05",
 	} {
-		if t, err := time.Parse(layout, s); err == nil {
+		if t, err := time.Parse(layout, s); err == nil && plausible(t) {
 			return t.Format("2006-01-02 15:04:05")
 		}
 	}
 	return ""
+}
+
+// plausible rejects capture dates outside the era of digital photography, which
+// a corrupt or crafted timestamp field otherwise renders literally.
+func plausible(t time.Time) bool {
+	return t.Year() >= 1980 && t.Year() <= time.Now().Year()+1
 }
