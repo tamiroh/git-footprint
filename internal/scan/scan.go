@@ -136,7 +136,7 @@ func Blobs(repo string) (Result, error) {
 			return
 		}
 
-		if looksBinary(content) {
+		if looksBinary(content) && !meta.Inert(ref.path) {
 			ext := strings.ToLower(filepath.Ext(ref.path))
 			res.Uninspected[ext]++ // a binary format git-footprint does not read
 		}

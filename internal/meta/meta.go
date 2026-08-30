@@ -21,6 +21,11 @@ var (
 		".dng", ".heic", ".heif", ".avif", ".cr2", ".cr3", ".crw", ".arw", ".nef")
 	videoExts = set(".mp4", ".m4v", ".mov", ".qt")
 	docExts   = set(".pdf")
+	// inertExts are binary formats with no field that can carry identifying
+	// metadata, so scanning skips them silently rather than listing them as
+	// unread. Kept deliberately small: fonts (name table) and compiled objects
+	// (embedded source paths) do not qualify.
+	inertExts = set(".ico", ".icns")
 )
 
 func set(xs ...string) map[string]bool {
@@ -37,6 +42,7 @@ func IsImage(path string) bool { return imageExts[ext(path)] }
 func IsVideo(path string) bool { return videoExts[ext(path)] }
 func IsDoc(path string) bool   { return docExts[ext(path)] }
 func Handles(path string) bool { return IsImage(path) || IsVideo(path) || IsDoc(path) }
+func Inert(path string) bool   { return inertExts[ext(path)] }
 
 type Data struct {
 	GPS      string // "lat, long"
