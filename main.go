@@ -658,14 +658,59 @@ func dateRange(id identity) string {
 	}
 }
 
+func termWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		switch {
+		case r >= 0x1100 && (r <= 0x115F ||
+			(r >= 0x2E80 && r <= 0xA4CF && r != 0x303F) ||
+			(r >= 0xAC00 && r <= 0xD7A3) ||
+			(r >= 0xF900 && r <= 0xFAFF) ||
+			(r >= 0xFE30 && r <= 0xFE4F) ||
+			(r >= 0xFF00 && r <= 0xFF60) ||
+			(r >= 0xFFE0 && r <= 0xFFE6) ||
+			(r >= 0x1F300 && r <= 0x1FAFF) ||
+			(r >= 0x20000 && r <= 0x3FFFD)):
+			w += 2
+		default:
+			w++
+		}
+	}
+	return w
+}
+
+func headerBox(pt painter, title string, lines ...string) {
+	all := append([]string{title}, lines...)
+	inner := 0
+	for _, l := range all {
+		if n := termWidth(l); n > inner {
+			inner = n
+		}
+	}
+	rule := strings.Repeat("─", inner+2)
+	pt.put("╭"+rule+"╮\n", ansiDim)
+	for i, l := range all {
+		code := ""
+		if i == 0 {
+			code = ansiBold
+		}
+		pt.put("│ ", ansiDim)
+		pt.put(l, code)
+		pt.put(strings.Repeat(" ", inner-termWidth(l))+" │\n", ansiDim)
+	}
+	pt.put("╰"+rule+"╯\n\n", ansiDim)
+}
+
 func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 	pt := painter{w: w, color: color}
 	images := scan.images
 
-	pt.put("git-footprint\n", ansiBold)
-	pt.put("  " + repo + "\n")
-	pt.put("  " + plural(fp.totalCommits, "$1 commit", "$1 commits") + " across " +
-		plural(len(fp.identities), "$1 identity", "$1 identities") + "\n\n")
+	headerBox(pt,
+		"git-footprint",
+		repo,
+		plural(fp.totalCommits, "$1 commit", "$1 commits")+" across "+
+			plural(len(fp.identities), "$1 identity", "$1 identities"),
+	)
 
 	byWho := map[[2]string][]imageMeta{}
 	for _, m := range images {
