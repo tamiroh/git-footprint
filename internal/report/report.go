@@ -55,16 +55,11 @@ func plural(n int, one, many string) string {
 }
 
 func commitCount(id identity.Identity) string {
-	switch {
-	case id.AuthorCommits == id.CommitterCommits:
+	if id.AuthorCommits == id.CommitterCommits {
 		return plural(id.AuthorCommits, "$1 commit", "$1 commits")
-	case id.CommitterCommits == 0:
-		return fmt.Sprintf("authored %d", id.AuthorCommits)
-	case id.AuthorCommits == 0:
-		return fmt.Sprintf("committed %d", id.CommitterCommits)
-	default:
-		return fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
 	}
+	// show both roles even at zero; an asymmetric "authored 1" reads worse
+	return fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
 }
 
 func dateRange(id identity.Identity) string {
