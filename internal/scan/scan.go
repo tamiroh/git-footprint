@@ -1,10 +1,12 @@
 // Package scan walks a repository's blob history and pulls the findings out of
-// each blob: image, video and PDF metadata, .DS_Store names, and a tally of
-// unreadable binaries.
+// each blob: image, video and PDF metadata, .DS_Store names, the same from
+// inside committed zip archives, and a tally of unreadable binaries.
 package scan
 
 import (
+	"archive/zip"
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,7 +18,11 @@ import (
 	"github.com/tamiroh/git-footprint/internal/meta"
 )
 
-const fieldSep = "\x1f" // ASCII Unit Separator
+const (
+	fieldSep    = "\x1f"    // ASCII Unit Separator
+	maxZipEntry = 64 << 20  // largest zip entry to decompress
+	maxZipTotal = 512 << 20 // decompression budget per archive
+)
 
 type Media struct {
 	meta.Data
@@ -54,11 +60,17 @@ func linkTarget(root, path, sha string, content []byte, extract bool, head map[s
 	if !extract {
 		return ""
 	}
+	return tempExtract(sha[:12]+"-"+filepath.Base(path), content)
+}
+
+// tempExtract writes content to $TMPDIR/git-footprint/<name> and returns the
+// path, so a hyperlink can open bytes that are no longer in the working tree.
+func tempExtract(name string, content []byte) string {
 	dir := filepath.Join(os.TempDir(), "git-footprint")
 	if os.MkdirAll(dir, 0o755) != nil {
 		return ""
 	}
-	tmp := filepath.Join(dir, sha[:12]+"-"+filepath.Base(path))
+	tmp := filepath.Join(dir, name)
 	if _, err := os.Stat(tmp); err != nil {
 		if os.WriteFile(tmp, content, 0o644) != nil {
 			return ""
@@ -136,6 +148,10 @@ func Blobs(repo string) (Result, error) {
 			return
 		}
 
+		if isZip(content) && scanZip(&res, ref, sha, content) {
+			return
+		}
+
 		if looksBinary(content) && !meta.Inert(ref.path) {
 			ext := strings.ToLower(filepath.Ext(ref.path))
 			res.Uninspected[ext]++ // a binary format git-footprint does not read
@@ -153,6 +169,73 @@ func Blobs(repo string) (Result, error) {
 		return res.DSStores[i].Path < res.DSStores[j].Path
 	})
 	return res, err
+}
+
+func isZip(b []byte) bool {
+	return bytes.HasPrefix(b, []byte("PK\x03\x04")) || bytes.HasPrefix(b, []byte("PK\x05\x06"))
+}
+
+// scanZip inspects the media, PDF and .DS_Store entries inside a committed
+// archive, attributing anything found to whoever committed the archive. Nested
+// archives are not followed. It returns false if the bytes will not parse as a
+// zip despite the magic, so the caller can fall back to the unread tally.
+func scanZip(res *Result, ref blobRef, sha string, content []byte) bool {
+	zr, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		return false
+	}
+	budget := int64(maxZipTotal)
+	for _, f := range zr.File {
+		base := filepath.Base(f.Name)
+		if f.FileInfo().IsDir() || f.UncompressedSize64 > maxZipEntry ||
+			(base != ".DS_Store" && !meta.Handles(f.Name)) {
+			continue
+		}
+		data, err := readZipEntry(f)
+		if err != nil {
+			continue
+		}
+		if budget -= int64(len(data)); budget < 0 {
+			break
+		}
+
+		shown := ref.path + " » " + f.Name
+		flat := strings.NewReplacer("/", "-", `\`, "-", "..", "").Replace(f.Name)
+		disk := tempExtract(sha[:12]+"-"+lastRunes(flat, 100), data)
+
+		if base == ".DS_Store" {
+			if names := dsstore.Names(data); len(names) > 0 {
+				res.DSStores = append(res.DSStores, DSStore{
+					Path: shown, Disk: disk,
+					ByName: ref.byName, ByEmail: ref.byEmail, Names: names,
+				})
+			}
+			continue
+		}
+		if d := meta.Read(f.Name, data); !d.Empty() {
+			res.Media = append(res.Media, Media{
+				Data: d, Path: shown, ByName: ref.byName, ByEmail: ref.byEmail, Disk: disk,
+			})
+		}
+	}
+	return true
+}
+
+func readZipEntry(f *zip.File) ([]byte, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return io.ReadAll(io.LimitReader(rc, maxZipEntry))
+}
+
+func lastRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[len(r)-n:])
 }
 
 func dedupeMedia(in []Media) []Media {
