@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/evanoberholster/imagemeta"
+	"github.com/tamiroh/git-footprint/internal/dsstore"
 )
 
 const version = "0.1.0"
@@ -92,8 +93,9 @@ func usage() {
 	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
-public. Lists every author/committer identity in the history and the EXIF
-metadata (location, creator, camera) of any image each of them committed.
+public. Per contributor: every identity in the history, the EXIF metadata
+(location, creator, camera) of any image they committed, and the file names a
+committed .DS_Store leaks.
 
 REPO defaults to the current directory.
 `)
@@ -320,11 +322,18 @@ func (m imageMeta) empty() bool {
 
 type blobScan struct {
 	images      []imageMeta
+	dsStores    []dsStoreLeak
 	uninspected map[string]int // extension -> count of binary blobs nothing was read from
 }
 
 type blobRef struct {
 	path, byName, byEmail string
+}
+
+type dsStoreLeak struct {
+	path            string
+	byName, byEmail string
+	names           []string
 }
 
 // scanBlobs reads every blob ever added or changed, pulls EXIF from images, and
@@ -371,6 +380,16 @@ func scanBlobs(repo string) (blobScan, error) {
 			return
 		}
 		ref := bySha[sha]
+
+		if filepath.Base(ref.path) == ".DS_Store" {
+			if names := dsstore.Names(content); len(names) > 0 {
+				scan.dsStores = append(scan.dsStores, dsStoreLeak{
+					path: ref.path, byName: ref.byName, byEmail: ref.byEmail, names: names,
+				})
+			}
+			return
+		}
+
 		ext := strings.ToLower(filepath.Ext(ref.path))
 		if imageExts[ext] {
 			// a supported image type: inspected, whether or not it had EXIF
@@ -388,6 +407,9 @@ func scanBlobs(repo string) (blobScan, error) {
 			return scan.images[i].revealing()
 		}
 		return scan.images[i].path < scan.images[j].path
+	})
+	sort.SliceStable(scan.dsStores, func(i, j int) bool {
+		return scan.dsStores[i].path < scan.dsStores[j].path
 	})
 	return scan, err
 }
@@ -543,6 +565,11 @@ func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 		k := [2]string{m.byName, m.byEmail}
 		byWho[k] = append(byWho[k], m)
 	}
+	dsByWho := map[[2]string][]dsStoreLeak{}
+	for _, d := range scan.dsStores {
+		k := [2]string{d.byName, d.byEmail}
+		dsByWho[k] = append(dsByWho[k], d)
+	}
 
 	revealing := 0
 	for _, id := range fp.identities {
@@ -569,7 +596,11 @@ func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 			}
 			imageLine(pt, m)
 		}
+		for _, d := range dsByWho[k] {
+			dsLine(pt, d)
+		}
 		delete(byWho, k)
+		delete(dsByWho, k)
 
 		pt.put("\n")
 	}
@@ -589,6 +620,18 @@ func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 		}
 	}
 
+	var dsOrphan []dsStoreLeak
+	for _, ds := range dsByWho {
+		dsOrphan = append(dsOrphan, ds...)
+	}
+	if len(dsOrphan) > 0 {
+		sort.SliceStable(dsOrphan, func(i, j int) bool { return dsOrphan[i].path < dsOrphan[j].path })
+		pt.put("\n.DS_Store files not tied to a listed identity\n", ansiBold)
+		for _, d := range dsOrphan {
+			dsLine(pt, d)
+		}
+	}
+
 	if len(images) > 0 {
 		s := plural(len(images), "$1 image carries EXIF metadata", "$1 images carry EXIF metadata")
 		if revealing > 0 {
@@ -599,11 +642,35 @@ func render(w io.Writer, fp footprint, scan blobScan, repo string, color bool) {
 		}
 	}
 
+	if n := len(scan.dsStores); n > 0 {
+		nameCount := 0
+		for _, d := range scan.dsStores {
+			nameCount += len(d.names)
+		}
+		pt.put(plural(n, "$1 committed .DS_Store", "$1 committed .DS_Store files")+
+			" leaking "+plural(nameCount, "$1 file/folder name", "$1 file/folder names")+"\n",
+			ansiYellow)
+	}
+
 	if n := total(scan.uninspected); n > 0 {
 		pt.put("not read (unsupported format): "+
 			plural(n, "$1 binary file", "$1 binary files")+
 			"  ·  "+extBreakdown(scan.uninspected)+"\n", ansiDim)
 	}
+}
+
+func dsLine(pt painter, d dsStoreLeak) {
+	const show = 8
+	head := d.names
+	if len(head) > show {
+		head = head[:show]
+	}
+	s := "    ⚠ " + d.path + "  ·  " +
+		plural(len(d.names), "$1 name", "$1 names") + ": " + strings.Join(head, ", ")
+	if len(d.names) > show {
+		s += fmt.Sprintf(", +%d more", len(d.names)-show)
+	}
+	pt.put(s+"\n", ansiYellow)
 }
 
 func total(m map[string]int) int {
