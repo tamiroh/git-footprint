@@ -49,6 +49,20 @@ type blobRef struct {
 	path, byName, byEmail string
 }
 
+// Findings reports whether the scan turned anything up, and whether any of it
+// reveals a location or creator. A committed .DS_Store always counts as
+// revealing.
+func (r Result) Findings() (found, revealing bool) {
+	for _, m := range r.Media {
+		found = true
+		revealing = revealing || m.Revealing()
+	}
+	if len(r.DSStores) > 0 {
+		found, revealing = true, true
+	}
+	return
+}
+
 // linkTarget is the absolute path a finding's hyperlink should open. When the
 // working tree holds exactly the bytes the finding came from, that file;
 // otherwise (for extractable types) a copy of the historical bytes under the

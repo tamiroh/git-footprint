@@ -13,11 +13,10 @@ Needs Go 1.24+ and `git`.
 ## Usage
 
 ```sh
-git-footprint [--no-color] [--color] [--no-pager] [--version] [REPO]
+git-footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] [REPO]
 ```
 
-`REPO` defaults to the current directory. When stdout is a terminal, output is
-paged through `$PAGER` (default `less`); `--no-pager` disables that.
+`REPO` defaults to the current directory.
 
 ## Roadmap
 

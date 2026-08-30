@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
 	"github.com/tamiroh/git-footprint/internal/identity"
@@ -26,6 +27,7 @@ func run() int {
 	noColor := flag.Bool("no-color", false, "never colourise output")
 	forceColor := flag.Bool("color", false, "colourise output even when not a terminal")
 	noPager := flag.Bool("no-pager", false, "do not page output through $PAGER")
+	failOn := flag.String("fail-on", "none", "exit 1 if findings reach this level: none, info, warn")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = usage
 	flag.Parse()
@@ -33,6 +35,13 @@ func run() int {
 	if *showVersion {
 		fmt.Println("git-footprint", version)
 		return 0
+	}
+
+	switch strings.ToLower(*failOn) {
+	case "none", "info", "warn":
+	default:
+		fmt.Fprintf(os.Stderr, "invalid --fail-on %q: want none, info or warn\n", *failOn)
+		return 2
 	}
 
 	if _, err := exec.LookPath("git"); err != nil {
@@ -79,8 +88,20 @@ func run() int {
 	color := (tty || *forceColor) && !*noColor
 
 	out, closePager := startPager(tty && !*noPager)
-	defer closePager()
 	report.Render(out, fp, result, root, color)
+	closePager()
+
+	found, revealing := result.Findings()
+	switch strings.ToLower(*failOn) {
+	case "warn":
+		if revealing {
+			return 1
+		}
+	case "info":
+		if found {
+			return 1
+		}
+	}
 	return 0
 }
 
@@ -121,7 +142,7 @@ func startPager(enabled bool) (io.Writer, func()) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--color] [--no-pager] [--version] [REPO]
+	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
 public. Per contributor: every identity in the history, the embedded metadata
@@ -129,5 +150,9 @@ public. Per contributor: every identity in the history, the embedded metadata
 they committed, and the file names a committed .DS_Store leaks.
 
 REPO defaults to the current directory.
+
+--fail-on LEVEL exits 1 when findings reach LEVEL (none, info, warn); "warn"
+covers any finding that reveals a location or creator, or a committed
+.DS_Store. Setup errors always exit 2.
 `)
 }
