@@ -17,8 +17,10 @@ import (
 	"github.com/tamiroh/git-footprint/internal/rule"
 	"github.com/tamiroh/git-footprint/internal/rules/archive"
 	"github.com/tamiroh/git-footprint/internal/rules/dsstore"
-	"github.com/tamiroh/git-footprint/internal/rules/metadata"
+	"github.com/tamiroh/git-footprint/internal/rules/image"
 	"github.com/tamiroh/git-footprint/internal/rules/office"
+	"github.com/tamiroh/git-footprint/internal/rules/pdf"
+	"github.com/tamiroh/git-footprint/internal/rules/video"
 )
 
 const version = "0.1.1"
@@ -87,7 +89,9 @@ func run() int {
 	color := (tty || *forceColor) && !*noColor
 
 	engine := rule.NewEngine(root, []rule.Rule{
-		metadata.New(),
+		image.New(),
+		video.New(),
+		pdf.New(),
 		office.New(),
 		dsstore.New(),
 		archive.New(),

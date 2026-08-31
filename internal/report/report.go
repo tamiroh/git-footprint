@@ -137,7 +137,10 @@ func headerBox(pt painter, title string, lines ...string) {
 // rank fixes the order findings from different detectors appear in, both under a
 // contributor and in the orphan section. Unknown (future) detectors sort last.
 func rank(detector string) int {
-	if r, ok := map[string]int{"embedded-metadata": 0, "office-metadata": 1, "ds-store": 2}[detector]; ok {
+	if r, ok := map[string]int{
+		"image-metadata": 0, "video-metadata": 1, "pdf-metadata": 2,
+		"office-metadata": 3, "ds-store": 4,
+	}[detector]; ok {
 		return r
 	}
 	return 99
@@ -147,9 +150,11 @@ func rank(detector string) int {
 // listed identity (they came in through a merge).
 func orphanTitle(detector string) string {
 	if t, ok := map[string]string{
-		"embedded-metadata": "media not tied to a listed identity",
-		"office-metadata":   "office documents not tied to a listed identity",
-		"ds-store":          ".DS_Store files not tied to a listed identity",
+		"image-metadata":  "images not tied to a listed identity",
+		"video-metadata":  "videos not tied to a listed identity",
+		"pdf-metadata":    "PDFs not tied to a listed identity",
+		"office-metadata": "office documents not tied to a listed identity",
+		"ds-store":        ".DS_Store files not tied to a listed identity",
 	}[detector]; ok {
 		return t
 	}
@@ -211,7 +216,8 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 		}
 	}
 
-	recapMetadata(pt, append(ofDetector(res.Findings, "embedded-metadata"), ofDetector(res.Findings, "office-metadata")...))
+	recapMetadata(pt, ofDetector(res.Findings,
+		"image-metadata", "video-metadata", "pdf-metadata", "office-metadata"))
 	recapDSStore(pt, ofDetector(res.Findings, "ds-store"))
 	if n := total(res.Unclaimed); n > 0 {
 		recap(pt, false, plural(n, "$1 file", "$1 files")+
@@ -286,10 +292,14 @@ func ruleOrder(fs []rule.Finding) []string {
 	return names
 }
 
-func ofDetector(in []rule.Finding, name string) []rule.Finding {
+func ofDetector(in []rule.Finding, names ...string) []rule.Finding {
+	want := map[string]bool{}
+	for _, n := range names {
+		want[n] = true
+	}
 	var out []rule.Finding
 	for _, f := range in {
-		if f.Detector == name {
+		if want[f.Detector] {
 			out = append(out, f)
 		}
 	}

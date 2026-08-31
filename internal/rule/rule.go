@@ -41,6 +41,18 @@ type Finding struct {
 	Count    int // detector-specific magnitude (e.g. names in a .DS_Store)
 }
 
+// NonEmpty returns the checks whose value is set, in order — the detectors build
+// a fixed list of candidate checks and let this drop the fields that were blank.
+func NonEmpty(cs []Check) []Check {
+	out := make([]Check, 0, len(cs))
+	for _, c := range cs {
+		if c.Value != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // Level is the finding's worst check level, or Info when it has no checks.
 func (f Finding) Level() Level {
 	l := Info
