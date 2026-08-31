@@ -17,9 +17,9 @@ import (
 var exts = map[string]bool{".docx": true, ".xlsx": true, ".pptx": true}
 
 type item struct {
-	path, link                                       string
-	by                                               rule.Author
-	creator, lastMod, app, company, manager, created string
+	path, link                                                  string
+	by                                                          rule.Author
+	creator, lastMod, app, company, manager, hlinkBase, created string
 }
 
 type Rule struct{ items []item }
@@ -52,18 +52,20 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 			}
 		case "docProps/app.xml":
 			var a struct {
-				Application string `xml:"Application"`
-				AppVersion  string `xml:"AppVersion"`
-				Company     string `xml:"Company"`
-				Manager     string `xml:"Manager"`
+				Application   string `xml:"Application"`
+				AppVersion    string `xml:"AppVersion"`
+				Company       string `xml:"Company"`
+				Manager       string `xml:"Manager"`
+				HyperlinkBase string `xml:"HyperlinkBase"`
 			}
 			if unmarshalEntry(f, &a) {
 				it.app = strings.TrimSpace(a.Application + " " + a.AppVersion)
-				it.company, it.manager = a.Company, a.Manager
+				it.company, it.manager, it.hlinkBase = a.Company, a.Manager, a.HyperlinkBase
 			}
 		}
 	}
-	if it.creator == "" && it.lastMod == "" && it.app == "" && it.company == "" && it.manager == "" {
+	if it.creator == "" && it.lastMod == "" && it.app == "" &&
+		it.company == "" && it.manager == "" && it.hlinkBase == "" {
 		return
 	}
 	it.path, it.by, it.link = b.Path, b.By, ctx.Link(b, true)
@@ -78,9 +80,11 @@ func (r *Rule) Findings() []rule.Finding {
 		out = append(out, rule.Finding{
 			Detector: "office-metadata", Path: it.path, Link: it.link, By: it.by,
 			Checks: rule.NonEmpty([]rule.Check{
-				{Name: "office-author", Level: rule.Warn, Value: firstNonEmpty(it.creator, it.lastMod)},
+				{Name: "office-author", Level: rule.Warn, Value: strings.TrimSpace(it.creator)},
+				{Name: "office-editor", Level: rule.Warn, Value: strings.TrimSpace(it.lastMod)},
 				{Name: "office-company", Level: rule.Warn, Value: strings.TrimSpace(it.company)},
 				{Name: "office-manager", Level: rule.Warn, Value: strings.TrimSpace(it.manager)},
+				{Name: "office-path", Level: rule.Warn, Value: strings.TrimSpace(it.hlinkBase)},
 				{Name: "office-application", Level: rule.Info, Value: it.app},
 				{Name: "office-date", Level: rule.Info, Value: officeDate(it.created)},
 			}),
@@ -105,15 +109,6 @@ func unmarshalEntry(f *zip.File, v any) bool {
 func officeDate(s string) string {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t.Format("2006-01-02 15:04:05")
-	}
-	return ""
-}
-
-func firstNonEmpty(vs ...string) string {
-	for _, v := range vs {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
 	}
 	return ""
 }
