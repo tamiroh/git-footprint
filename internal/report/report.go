@@ -136,7 +136,7 @@ func headerBox(pt painter, title string, lines ...string) {
 func rank(detector string) int {
 	if r, ok := map[string]int{
 		"image-metadata": 0, "video-metadata": 1, "pdf-metadata": 2,
-		"office-metadata": 3, "ds-store": 4,
+		"office-metadata": 3, "ds-store": 4, "archive": 5,
 	}[detector]; ok {
 		return r
 	}
@@ -337,6 +337,13 @@ func summary(pt painter, res rule.Result) {
 		}
 		recap(pt, markWarn, plural(len(ds), "$1 committed .DS_Store", "$1 committed .DS_Store files")+
 			" leaking "+plural(names, "$1 file/folder name", "$1 file/folder names"))
+	}
+
+	if arc := ofDetector(res.Findings, "archive"); len(arc) == 0 {
+		recap(pt, markOK, "no committed archive names its owner")
+	} else {
+		recap(pt, markWarn, plural(len(arc),
+			"$1 committed archive names its owner", "$1 committed archives name their owner"))
 	}
 
 	if n := total(res.Unclaimed); n == 0 {
