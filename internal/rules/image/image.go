@@ -15,12 +15,10 @@ import (
 	"github.com/tamiroh/git-footprint/internal/rule"
 )
 
-// no HEIC/HEIF/AVIF/CR3: imagemeta v1.0.0's ISOBMFF path returns nothing, and a
-// silent miss on a GPS-tagged HEIC is worse than "not read".
 var exts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".jpe": true, ".jfif": true, ".png": true,
 	".tif": true, ".tiff": true, ".dng": true, ".cr2": true, ".crw": true,
-	".arw": true, ".nef": true,
+	".arw": true, ".nef": true, ".gif": true,
 }
 
 // claimed but never read: nothing in an icon can identify anyone.
@@ -103,6 +101,10 @@ func dedupe(in []item) []item {
 
 func read(blob []byte) (d data) {
 	defer func() { _ = recover() }()
+
+	if bytes.HasPrefix(blob, []byte("GIF8")) {
+		return readXMP(blob)
+	}
 
 	// imagemeta's PNG scanner misreads little-endian EXIF; pull the eXIf chunk
 	// ourselves and feed the raw TIFF to the endian-aware path.
