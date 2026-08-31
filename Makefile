@@ -10,3 +10,8 @@ check:
 		echo "$$files"; \
 		exit 1; \
 	fi
+	go vet ./...
+
+.PHONY: test
+test:
+	go test ./...

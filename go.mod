@@ -5,6 +5,7 @@ go 1.24
 require (
 	github.com/abema/go-mp4 v1.7.1
 	github.com/evanoberholster/imagemeta v1.0.0
+	github.com/google/go-cmp v0.7.0
 	rsc.io/pdf v0.1.1
 )
 
