@@ -1,4 +1,4 @@
-// Package dsstore reports the names a committed macOS .DS_Store leaks.
+// Package dsstore reports what a committed macOS .DS_Store leaks.
 package dsstore
 
 import (
@@ -11,10 +11,9 @@ import (
 )
 
 type item struct {
-	path  string
-	link  string
-	by    rule.Author
-	names []string
+	path, link string
+	by         rule.Author
+	dsData
 }
 
 type Rule struct{ items []item }
@@ -28,8 +27,8 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 		return
 	}
 	ctx.Claim()
-	if names := parseNames(b.Content); len(names) > 0 {
-		r.items = append(r.items, item{b.Path, ctx.Link(b, false), b.By, names})
+	if d := parse(b.Content); len(d.names)+len(d.comments)+len(d.paths) > 0 {
+		r.items = append(r.items, item{b.Path, ctx.Link(b, false), b.By, d})
 	}
 }
 
@@ -38,9 +37,16 @@ func (r *Rule) Findings() []rule.Finding {
 
 	out := make([]rule.Finding, 0, len(r.items))
 	for _, it := range r.items {
+		checks := []rule.Check{{Name: "ds-store-names", Level: rule.Warn, Value: nameList(it.names)}}
+		for _, c := range it.comments {
+			checks = append(checks, rule.Check{Name: "ds-store-comment", Level: rule.Warn, Value: c})
+		}
+		for _, p := range it.paths {
+			checks = append(checks, rule.Check{Name: "ds-store-path", Level: rule.Warn, Value: p})
+		}
 		out = append(out, rule.Finding{
 			Detector: "ds-store", Path: it.path, Link: it.link, By: it.by,
-			Checks: []rule.Check{{Name: "ds-store-names", Level: rule.Warn, Value: nameList(it.names)}},
+			Checks: rule.NonEmpty(checks),
 			Count:  len(it.names),
 		})
 	}

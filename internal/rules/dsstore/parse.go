@@ -2,15 +2,24 @@ package dsstore
 
 // A .DS_Store is a buddy-allocator container holding a B-tree of Finder records
 // keyed by name. Those names — every sibling Finder saw, deleted ones included —
-// are what leaks.
+// plus any Finder comment and the disk path of a folder-background image are
+// what leak.
 
 import (
+	"bytes"
 	"encoding/binary"
 	"sort"
+	"strings"
 	"unicode/utf16"
 )
 
-func parseNames(b []byte) (names []string) {
+type dsData struct {
+	names    []string
+	comments []string
+	paths    []string
+}
+
+func parse(b []byte) (out dsData) {
 	defer func() { _ = recover() }()
 
 	if len(b) < 36 || string(b[4:8]) != "Bud1" {
@@ -106,9 +115,12 @@ func parseNames(b []byte) (names []string) {
 				return false
 			}
 			name := decodeUTF16BE(d[pos : pos+nl*2])
-			pos += nl*2 + 4 // name + structure id
+			structID := string(d[pos+nl*2 : pos+nl*2+4])
+			pos += nl*2 + 4
 			dtype := string(d[pos : pos+4])
 			pos += 4
+
+			val := pos
 			switch dtype {
 			case "long", "shor", "type":
 				pos += 4
@@ -132,9 +144,18 @@ func parseNames(b []byte) (names []string) {
 			if pos > len(d) {
 				return false
 			}
+
 			if name != "" && name != "." && !seen[name] {
 				seen[name] = true
-				names = append(names, name)
+				out.names = append(out.names, name)
+			}
+			switch {
+			case structID == "cmmt" && dtype == "ustr":
+				if c := strings.TrimSpace(decodeUTF16BE(d[val+4 : pos])); c != "" {
+					out.comments = append(out.comments, c)
+				}
+			case dtype == "blob":
+				out.paths = append(out.paths, scanPaths(d[val+4:pos])...)
 			}
 			return true
 		}
@@ -157,8 +178,33 @@ func parseNames(b []byte) (names []string) {
 	}
 	walk(int(be.Uint32(head)), 0)
 
-	sort.Strings(names)
+	sort.Strings(out.names)
 	return
+}
+
+// scanPaths pulls user-home paths out of a raw value — Finder stores a
+// background image as an alias/bookmark blob with the path in plain bytes.
+func scanPaths(b []byte) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, tag := range []string{"/Users/", "/home/"} {
+		for rest := b; ; {
+			j := bytes.Index(rest, []byte(tag))
+			if j < 0 {
+				break
+			}
+			e := j
+			for e < len(rest) && rest[e] >= 0x20 && rest[e] < 0x7f {
+				e++
+			}
+			if p := string(rest[j:e]); len(p) > len(tag) && !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+			rest = rest[e:]
+		}
+	}
+	return out
 }
 
 func decodeUTF16BE(b []byte) string {
