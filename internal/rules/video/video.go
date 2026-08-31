@@ -21,7 +21,7 @@ var exts = map[string]bool{".mp4": true, ".m4v": true, ".mov": true, ".qt": true
 
 func ext(name string) string { return strings.ToLower(filepath.Ext(name)) }
 
-type data struct{ gps, creator, camera, taken string }
+type data struct{ gps, creator, camera, software, taken string }
 
 func (d data) empty() bool { return d == data{} }
 
@@ -64,6 +64,7 @@ func (r *Rule) Findings() []rule.Finding {
 				{Name: "video-location", Level: rule.Warn, Value: it.gps},
 				{Name: "video-creator", Level: rule.Warn, Value: it.creator},
 				{Name: "video-camera", Level: rule.Info, Value: it.camera},
+				{Name: "video-software", Level: rule.Info, Value: it.software},
 				{Name: "video-date", Level: rule.Info, Value: it.taken},
 			}),
 		})
@@ -116,9 +117,15 @@ func read(blob []byte) (d data) {
 			if model == "" {
 				model = val
 			}
-		case strings.HasSuffix(key, ".artist") || key == "\xa9ART" || key == "\xa9aut":
+		case strings.HasSuffix(key, ".artist") || strings.HasSuffix(key, ".author") ||
+			key == "\xa9ART" || key == "\xa9aut":
 			if d.creator == "" {
 				d.creator = mediameta.Clean(val)
+			}
+		case strings.HasSuffix(key, ".software") || strings.HasSuffix(key, "android.version") ||
+			key == "\xa9swr" || key == "\xa9too":
+			if d.software == "" {
+				d.software = mediameta.Clean(val)
 			}
 		}
 	}
