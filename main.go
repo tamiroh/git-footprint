@@ -18,6 +18,7 @@ import (
 	"github.com/tamiroh/git-footprint/internal/rules/archive"
 	"github.com/tamiroh/git-footprint/internal/rules/dsstore"
 	"github.com/tamiroh/git-footprint/internal/rules/metadata"
+	"github.com/tamiroh/git-footprint/internal/rules/office"
 )
 
 const version = "0.1.1"
@@ -87,6 +88,7 @@ func run() int {
 
 	engine := rule.NewEngine(root, []rule.Rule{
 		metadata.New(),
+		office.New(),
 		dsstore.New(),
 		archive.New(),
 	}, color)
@@ -156,8 +158,8 @@ func usage() {
 
 Check what your git history reveals about you before you make a repository
 public. Per contributor: every identity in the history, the embedded metadata
-(location, creator, camera, software, creation date) of any image, video or PDF
-they committed, and the file names a committed .DS_Store leaks.
+(location, creator, camera, software, creation date) of any image, video, PDF or
+Office document they committed, and the file names a committed .DS_Store leaks.
 
 REPO defaults to the current directory.
 

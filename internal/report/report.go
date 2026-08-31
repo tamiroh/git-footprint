@@ -137,7 +137,7 @@ func headerBox(pt painter, title string, lines ...string) {
 // rank fixes the order findings from different rules appear in, both under a
 // contributor and in the orphan section. Unknown (future) rules sort last.
 func rank(ruleName string) int {
-	if r, ok := map[string]int{"metadata": 0, "dsstore": 1}[ruleName]; ok {
+	if r, ok := map[string]int{"metadata": 0, "office": 1, "dsstore": 2}[ruleName]; ok {
 		return r
 	}
 	return 99
@@ -148,6 +148,7 @@ func rank(ruleName string) int {
 func orphanTitle(ruleName string) string {
 	if t, ok := map[string]string{
 		"metadata": "media not tied to a listed identity",
+		"office":   "office documents not tied to a listed identity",
 		"dsstore":  ".DS_Store files not tied to a listed identity",
 	}[ruleName]; ok {
 		return t
@@ -204,7 +205,7 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 		}
 	}
 
-	recapMetadata(pt, ofRule(res.Findings, "metadata"))
+	recapMetadata(pt, append(ofRule(res.Findings, "metadata"), ofRule(res.Findings, "office")...))
 	recapDSStore(pt, ofRule(res.Findings, "dsstore"))
 	if n := total(res.Unclaimed); n > 0 {
 		recap(pt, false, plural(n, "$1 file", "$1 files")+
