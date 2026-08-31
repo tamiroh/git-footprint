@@ -8,19 +8,20 @@ Check what your git history reveals about you before you make a repository publi
 go install github.com/tamiroh/git-footprint@latest
 ```
 
-Needs Go 1.24+ and `git`.
+Needs Go 1.24+ and `git`. The binary lands on your `PATH` as `git-footprint`,
+so git picks it up as a subcommand.
 
 ## Usage
 
 ```sh
-git-footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] [REPO]
+git footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] [REPO]
 ```
 
 `REPO` defaults to the current directory.
 
 ## Roadmap
 
-Today `git-footprint` reports, per contributor:
+Today `git footprint` reports, per contributor:
 
 - every author/committer identity in the history
 - embedded metadata (location, creator, camera, software, creation date) of any

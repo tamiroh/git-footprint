@@ -158,7 +158,7 @@ func startPager(enabled bool) (io.Writer, func()) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `git-footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] [REPO]
+	fmt.Fprint(os.Stderr, `git footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
 public. Per contributor: every identity in the history, the embedded metadata
