@@ -172,32 +172,23 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 		byWho[k] = append(byWho[k], f)
 	}
 
+	var mine, rest []identity.Identity
 	for _, id := range fp.Identities {
-		nameCode, code := ansiBold, ""
-		if id.Bot {
-			nameCode, code = ansiDim, ansiDim
+		if id.Self != identity.NotSelf {
+			mine = append(mine, id)
+		} else {
+			rest = append(rest, id)
 		}
-		pt.put("● "+id.Name+" <"+id.Email+">", nameCode)
-		switch id.Self {
-		case identity.IsSelf:
-			pt.put("  (you)", ansiBold, ansiGreen)
-		case identity.MaybeSelf:
-			pt.put("  (maybe you)", ansiDim)
+	}
+	if len(mine) > 0 {
+		sectionHead(pt, "your identities")
+		for _, id := range mine {
+			identityBlock(pt, id, byWho)
 		}
-		pt.put("\n")
-
-		line := "    " + commitCount(id)
-		if dr := dateRange(id); dr != "" {
-			line += "  ·  " + dr
-		}
-		pt.put(line+"\n", code)
-
-		k := [2]string{id.Name, id.Email}
-		for _, f := range sortFindings(byWho[k]) {
-			findingBlock(pt, f)
-		}
-		delete(byWho, k)
-		pt.put("\n")
+		sectionHead(pt, "other contributors")
+	}
+	for _, id := range rest {
+		identityBlock(pt, id, byWho)
 	}
 
 	var orphans []rule.Finding
@@ -219,6 +210,40 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 		recap(pt, false, plural(n, "$1 file", "$1 files")+
 			" not read (unsupported format)  ·  "+extBreakdown(res.Unclaimed))
 	}
+}
+
+func sectionHead(pt painter, title string) {
+	u := strings.ToUpper(title)
+	pt.put(u+"\n", ansiBold)
+	pt.put(strings.Repeat("─", termWidth(u))+"\n\n", ansiDim)
+}
+
+func identityBlock(pt painter, id identity.Identity, byWho map[[2]string][]rule.Finding) {
+	nameCode, code := ansiBold, ""
+	if id.Bot {
+		nameCode, code = ansiDim, ansiDim
+	}
+	pt.put("● "+id.Name+" <"+id.Email+">", nameCode)
+	switch id.Self {
+	case identity.IsSelf:
+		pt.put("  (you)", ansiBold, ansiGreen)
+	case identity.MaybeSelf:
+		pt.put("  (maybe you)", ansiDim)
+	}
+	pt.put("\n")
+
+	line := "    " + commitCount(id)
+	if dr := dateRange(id); dr != "" {
+		line += "  ·  " + dr
+	}
+	pt.put(line+"\n", code)
+
+	k := [2]string{id.Name, id.Email}
+	for _, f := range sortFindings(byWho[k]) {
+		findingBlock(pt, f)
+	}
+	delete(byWho, k)
+	pt.put("\n")
 }
 
 func sortFindings(in []rule.Finding) []rule.Finding {

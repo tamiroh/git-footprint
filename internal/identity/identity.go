@@ -92,9 +92,9 @@ func collect(repo string) ([]Identity, error) {
 	return ids, nil
 }
 
-// Build assembles the identity footprint. Every distinct (name, email) is one
-// entry, sorted by name then email so a person's aliases sit adjacent; bots
-// last. It flags the entries that are, or might be, you.
+// Build assembles the identity footprint. The entries that are (or might be)
+// you sort first; the rest go by name then email so a person's aliases sit
+// adjacent, with bots last.
 func Build(repo string) (Footprint, error) {
 	ids, err := collect(repo)
 	if err != nil {
@@ -108,6 +108,12 @@ func Build(repo string) (Footprint, error) {
 
 	sort.SliceStable(ids, func(i, j int) bool {
 		a, b := ids[i], ids[j]
+		if (a.Self != NotSelf) != (b.Self != NotSelf) {
+			return a.Self != NotSelf // you and maybe-you first
+		}
+		if a.Self != b.Self {
+			return a.Self > b.Self // (you) before (maybe you)
+		}
 		if a.Bot != b.Bot {
 			return !a.Bot
 		}
