@@ -23,7 +23,7 @@ git-footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] 
 Today `git-footprint` reports, per contributor:
 
 - every author/committer identity in the history
-- embedded metadata (location, creator, camera, software, capture time) of any
+- embedded metadata (location, creator, camera, software, creation date) of any
   committed image (JPEG, PNG, TIFF, HEIC/AVIF, camera RAW), video (MP4, MOV) or
   PDF
 - the file/folder names a committed `.DS_Store` leaks

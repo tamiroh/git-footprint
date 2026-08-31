@@ -229,6 +229,9 @@ func readVideo(blob []byte) (d Data) {
 			}
 
 		case t == "mvhd":
+			// the movie header's creation time: a real capture date on
+			// camera-original and screen-recorded files, the mux time on
+			// re-encoded ones. Only a fallback — an ilst creationdate wins.
 			if d.Taken == "" {
 				if pl, _, err := h.ReadPayload(); err == nil {
 					if m, ok := pl.(*mp4.Mvhd); ok {
