@@ -15,6 +15,12 @@ func Run(repo string, args ...string) (string, error) {
 	return string(out), err
 }
 
+// Try runs git and returns trimmed stdout, or "" on any failure.
+func Try(repo string, args ...string) string {
+	out, _ := Run(repo, args...)
+	return strings.TrimSpace(out)
+}
+
 func IsRepo(path string) bool {
 	_, err := Run(path, "rev-parse", "--git-dir")
 	return err == nil

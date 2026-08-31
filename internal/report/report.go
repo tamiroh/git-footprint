@@ -16,6 +16,7 @@ const (
 	ansiReset  = "\x1b[0m"
 	ansiBold   = "\x1b[1m"
 	ansiDim    = "\x1b[2m"
+	ansiGreen  = "\x1b[32m"
 	ansiYellow = "\x1b[33m"
 )
 
@@ -176,7 +177,14 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 		if id.Bot {
 			nameCode, code = ansiDim, ansiDim
 		}
-		pt.put("● "+id.Name+" <"+id.Email+">\n", nameCode)
+		pt.put("● "+id.Name+" <"+id.Email+">", nameCode)
+		switch id.Self {
+		case identity.IsSelf:
+			pt.put("  (you)", ansiBold, ansiGreen)
+		case identity.MaybeSelf:
+			pt.put("  (maybe you)", ansiDim)
+		}
+		pt.put("\n")
 
 		line := "    " + commitCount(id)
 		if dr := dateRange(id); dr != "" {

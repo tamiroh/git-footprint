@@ -13,6 +13,15 @@ import (
 // user.name can't shift the parsed fields. The format string emits it as %x00.
 const fieldSep = "\x00"
 
+// Self is how confidently an identity belongs to whoever is running the tool.
+type Self int
+
+const (
+	NotSelf   Self = iota
+	MaybeSelf      // same name as a confirmed self, different address
+	IsSelf         // address matches this checkout's git config user.email
+)
+
 type Identity struct {
 	Name             string
 	Email            string
@@ -21,6 +30,7 @@ type Identity struct {
 	FirstDate        string
 	LastDate         string
 	Bot              bool // name ends in "[bot]" or commits come from a CI/web service
+	Self             Self
 }
 
 type Footprint struct {
@@ -82,10 +92,9 @@ func collect(repo string) ([]Identity, error) {
 	return ids, nil
 }
 
-// Build assembles the identity footprint. It makes no claim about which
-// identities belong to the same person or to you: every distinct (name, email)
-// is one entry, sorted by name then email so a person's aliases sit adjacent.
-// Bot identities sort last.
+// Build assembles the identity footprint. Every distinct (name, email) is one
+// entry, sorted by name then email so a person's aliases sit adjacent; bots
+// last. It flags the entries that are, or might be, you.
 func Build(repo string) (Footprint, error) {
 	ids, err := collect(repo)
 	if err != nil {
@@ -95,6 +104,7 @@ func Build(repo string) (Footprint, error) {
 	for i := range ids {
 		ids[i].Bot = looksBot(ids[i].Name, ids[i].Email)
 	}
+	markSelf(ids, repo)
 
 	sort.SliceStable(ids, func(i, j int) bool {
 		a, b := ids[i], ids[j]
@@ -112,6 +122,39 @@ func Build(repo string) (Footprint, error) {
 		commits += id.AuthorCommits
 	}
 	return Footprint{TotalCommits: commits, Identities: ids}, nil
+}
+
+// markSelf flags identities against this checkout's git config: an exact
+// user.email match (or, if that is unset, a user.name match) is IsSelf; any
+// other identity sharing a name with a confirmed self is MaybeSelf. It never
+// groups people who aren't you.
+func markSelf(ids []Identity, repo string) {
+	cfgEmail := strings.ToLower(gitcmd.Try(repo, "config", "user.email"))
+	cfgName := gitcmd.Try(repo, "config", "user.name")
+
+	for i := range ids {
+		switch {
+		case cfgEmail != "" && strings.EqualFold(ids[i].Email, cfgEmail):
+			ids[i].Self = IsSelf
+		case cfgEmail == "" && cfgName != "" && strings.EqualFold(ids[i].Name, cfgName):
+			ids[i].Self = IsSelf
+		}
+	}
+
+	selfNames := map[string]bool{}
+	if cfgName != "" {
+		selfNames[strings.ToLower(cfgName)] = true
+	}
+	for _, id := range ids {
+		if id.Self == IsSelf {
+			selfNames[strings.ToLower(id.Name)] = true
+		}
+	}
+	for i := range ids {
+		if ids[i].Self == NotSelf && selfNames[strings.ToLower(ids[i].Name)] {
+			ids[i].Self = MaybeSelf
+		}
+	}
 }
 
 // looksBot reports whether an identity is lexically a bot or service account:
