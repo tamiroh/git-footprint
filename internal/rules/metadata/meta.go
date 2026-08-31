@@ -17,8 +17,11 @@ import (
 )
 
 var (
+	// HEIC/HEIF/AVIF/CR3 go through imagemeta v1.0.0's ISOBMFF path, which
+	// currently returns nothing — better to leave them in the "not read" tally
+	// than to silently pass an iPhone HEIC that carries GPS.
 	imageExts = set(".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".tif", ".tiff",
-		".dng", ".heic", ".heif", ".avif", ".cr2", ".cr3", ".crw", ".arw", ".nef")
+		".dng", ".cr2", ".crw", ".arw", ".nef")
 	videoExts = set(".mp4", ".m4v", ".mov", ".qt")
 	docExts   = set(".pdf")
 	// inertExts are binary formats with no field that can carry identifying
