@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/evanoberholster/imagemeta"
 
-	"github.com/tamiroh/git-footprint/internal/mediameta"
 	"github.com/tamiroh/git-footprint/internal/rule"
 	"github.com/tamiroh/git-footprint/internal/xmp"
 )
@@ -155,15 +155,15 @@ func readEXIF(blob []byte) (d data) {
 	if lat, long := x.GPS.Latitude(), x.GPS.Longitude(); lat != 0 || long != 0 {
 		d.gps = fmt.Sprintf("%.5f, %.5f", lat, long)
 	}
-	d.creator = mediameta.Clean(x.IFD0.Artist)
+	d.creator = clean(x.IFD0.Artist)
 	if d.creator == "" {
-		d.creator = mediameta.Clean(x.IFD0.Copyright)
+		d.creator = clean(x.IFD0.Copyright)
 	}
-	d.owner = mediameta.Clean(x.ExifIFD.CameraOwnerName)
-	d.serial = mediameta.FirstNonEmpty(x.ExifIFD.BodySerialNumber, x.CameraSerial, x.ExifIFD.LensSerial)
-	d.camera = mediameta.CameraName(mediameta.Clean(x.CameraMake()), mediameta.Clean(x.IFD0.Model))
-	d.software = mediameta.Clean(x.IFD0.Software)
-	if t := x.OriginalDate(); mediameta.Plausible(t) {
+	d.owner = clean(x.ExifIFD.CameraOwnerName)
+	d.serial = firstNonEmpty(x.ExifIFD.BodySerialNumber, x.CameraSerial, x.ExifIFD.LensSerial)
+	d.camera = cameraName(clean(x.CameraMake()), clean(x.IFD0.Model))
+	d.software = clean(x.IFD0.Software)
+	if t := x.OriginalDate(); plausible(t) {
 		d.taken = t.Format("2006-01-02 15:04:05")
 	}
 	return
@@ -189,4 +189,32 @@ func pngEXIF(b []byte) []byte {
 		p += n + 4
 	}
 	return nil
+}
+
+func clean(s string) string { return strings.TrimRight(s, "\x00 ") }
+
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func plausible(t time.Time) bool { return t.Year() >= 1980 && t.Year() <= time.Now().Year()+1 }
+
+// cameraName: "NIKON" + "NIKON D2H" -> "NIKON D2H"
+func cameraName(mk, model string) string {
+	switch {
+	case mk == "":
+		return model
+	case model == "":
+		return mk
+	}
+	if brand := strings.Fields(mk); len(brand) > 0 &&
+		strings.HasPrefix(strings.ToLower(model), strings.ToLower(brand[0])) {
+		return model
+	}
+	return mk + " " + model
 }

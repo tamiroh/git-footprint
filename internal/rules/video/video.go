@@ -13,7 +13,6 @@ import (
 
 	"github.com/abema/go-mp4"
 
-	"github.com/tamiroh/git-footprint/internal/mediameta"
 	"github.com/tamiroh/git-footprint/internal/rule"
 )
 
@@ -120,12 +119,12 @@ func read(blob []byte) (d data) {
 		case strings.HasSuffix(key, ".artist") || strings.HasSuffix(key, ".author") ||
 			key == "\xa9ART" || key == "\xa9aut":
 			if d.creator == "" {
-				d.creator = mediameta.Clean(val)
+				d.creator = clean(val)
 			}
 		case strings.HasSuffix(key, ".software") || strings.HasSuffix(key, "android.version") ||
 			key == "\xa9swr" || key == "\xa9too":
 			if d.software == "" {
-				d.software = mediameta.Clean(val)
+				d.software = clean(val)
 			}
 		}
 	}
@@ -188,7 +187,7 @@ func read(blob []byte) (d data) {
 			if d.taken == "" {
 				if pl, _, err := h.ReadPayload(); err == nil {
 					if m, ok := pl.(*mp4.Mvhd); ok {
-						if u := time.Unix(mvhdSeconds(m)-2082844800, 0).UTC(); mediameta.Plausible(u) {
+						if u := time.Unix(mvhdSeconds(m)-2082844800, 0).UTC(); plausible(u) {
 							d.taken = u.Format("2006-01-02 15:04:05")
 						}
 					}
@@ -198,7 +197,7 @@ func read(blob []byte) (d data) {
 		return nil, nil
 	})
 
-	d.camera = mediameta.CameraName(mediameta.Clean(mk), mediameta.Clean(model))
+	d.camera = cameraName(clean(mk), clean(model))
 	return
 }
 
@@ -288,9 +287,28 @@ func normalizeTime(s string) string {
 		time.RFC3339, "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05Z",
 		"2006-01-02 15:04:05", "2006-01-02T15:04:05",
 	} {
-		if t, err := time.Parse(layout, s); err == nil && mediameta.Plausible(t) {
+		if t, err := time.Parse(layout, s); err == nil && plausible(t) {
 			return t.Format("2006-01-02 15:04:05")
 		}
 	}
 	return ""
+}
+
+func clean(s string) string { return strings.TrimRight(s, "\x00 ") }
+
+func plausible(t time.Time) bool { return t.Year() >= 1980 && t.Year() <= time.Now().Year()+1 }
+
+// cameraName: "NIKON" + "NIKON D2H" -> "NIKON D2H"
+func cameraName(mk, model string) string {
+	switch {
+	case mk == "":
+		return model
+	case model == "":
+		return mk
+	}
+	if brand := strings.Fields(mk); len(brand) > 0 &&
+		strings.HasPrefix(strings.ToLower(model), strings.ToLower(brand[0])) {
+		return model
+	}
+	return mk + " " + model
 }

@@ -10,7 +10,6 @@ import (
 
 	"rsc.io/pdf"
 
-	"github.com/tamiroh/git-footprint/internal/mediameta"
 	"github.com/tamiroh/git-footprint/internal/rule"
 	"github.com/tamiroh/git-footprint/internal/xmp"
 )
@@ -116,8 +115,8 @@ func read(blob []byte) (d data) {
 
 	if r, err := pdf.NewReader(bytes.NewReader(blob), int64(len(blob))); err == nil {
 		info := r.Trailer().Key("Info")
-		addCreator(mediameta.Clean(info.Key("Author").Text()))
-		d.software = software(mediameta.Clean(info.Key("Creator").Text()), mediameta.Clean(info.Key("Producer").Text()))
+		addCreator(clean(info.Key("Author").Text()))
+		d.software = software(clean(info.Key("Creator").Text()), clean(info.Key("Producer").Text()))
 		d.taken = date(info.Key("CreationDate").Text())
 
 		for i := 1; i <= r.NumPage() && i <= 5000; i++ {
@@ -162,10 +161,14 @@ func date(s string) string {
 	}
 	for _, layout := range []string{"20060102150405", "200601021504", "2006010215", "20060102"} {
 		if len(layout) <= digits {
-			if t, err := time.Parse(layout, s[:len(layout)]); err == nil && mediameta.Plausible(t) {
+			if t, err := time.Parse(layout, s[:len(layout)]); err == nil && plausible(t) {
 				return t.Format("2006-01-02 15:04:05")
 			}
 		}
 	}
 	return ""
 }
+
+func clean(s string) string { return strings.TrimRight(s, "\x00 ") }
+
+func plausible(t time.Time) bool { return t.Year() >= 1980 && t.Year() <= time.Now().Year()+1 }

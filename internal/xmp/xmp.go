@@ -4,9 +4,8 @@ package xmp
 import (
 	"bytes"
 	"encoding/xml"
+	"strings"
 	"time"
-
-	"github.com/tamiroh/git-footprint/internal/mediameta"
 )
 
 type Data struct {
@@ -52,17 +51,17 @@ func parse(packet []byte) (d Data) {
 	seen := map[string]bool{}
 	for _, desc := range m.Desc {
 		if d.Creator == "" {
-			d.Creator = mediameta.FirstNonEmpty(desc.Creators...)
+			d.Creator = firstNonEmpty(desc.Creators...)
 		}
 		if d.Tool == "" {
-			d.Tool = mediameta.Clean(mediameta.FirstNonEmpty(desc.ToolAttr, desc.ToolEl))
+			d.Tool = firstNonEmpty(desc.ToolAttr, desc.ToolEl)
 		}
 		if d.Date == "" {
-			d.Date = normDate(mediameta.FirstNonEmpty(desc.DateAttr, desc.DateEl, desc.DateCreated))
+			d.Date = normDate(firstNonEmpty(desc.DateAttr, desc.DateEl, desc.DateCreated))
 		}
 		for _, list := range [][]string{desc.RegionNames, desc.MSRegionNames} {
 			for _, name := range list {
-				if n := mediameta.FirstNonEmpty(name); n != "" && !seen[n] {
+				if n := strings.TrimSpace(name); n != "" && !seen[n] {
 					seen[n] = true
 					d.People = append(d.People, n)
 				}
@@ -70,6 +69,15 @@ func parse(packet []byte) (d Data) {
 		}
 	}
 	return
+}
+
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func packetOf(b []byte) []byte {
@@ -103,9 +111,12 @@ type desc struct {
 
 func normDate(s string) string {
 	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
-		if t, err := time.Parse(layout, s); err == nil && mediameta.Plausible(t) {
+		if t, err := time.Parse(layout, s); err == nil && plausible(t) {
 			return t.Format("2006-01-02 15:04:05")
 		}
 	}
 	return ""
 }
+
+// plausible rejects dates a corrupt metadata field would otherwise render literally.
+func plausible(t time.Time) bool { return t.Year() >= 1980 && t.Year() <= time.Now().Year()+1 }
