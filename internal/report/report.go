@@ -25,11 +25,10 @@ type painter struct {
 	color bool
 }
 
-// put writes caller text, scrubbed of terminal control sequences — names,
-// paths and metadata all come from the scanned (possibly hostile) repository.
+// put scrubs control sequences from caller text — it comes from the scanned,
+// possibly hostile repository.
 func (pt painter) put(text string, codes ...string) { pt.write(sane(text), codes...) }
 
-// putLink writes text as an OSC 8 hyperlink to target, then a newline.
 func (pt painter) putLink(text, target string, codes ...string) {
 	text = sane(text)
 	if pt.color && target != "" {
@@ -75,7 +74,6 @@ func plural(n int, one, many string) string {
 	return strings.ReplaceAll(form, "$1", fmt.Sprint(n))
 }
 
-// commitCount always shows both roles, so the column reads uniformly.
 func commitCount(id identity.Identity) string {
 	return fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
 }
@@ -134,8 +132,7 @@ func headerBox(pt painter, title string, lines ...string) {
 	pt.put("╰"+rule+"╯\n\n", ansiDim)
 }
 
-// rank fixes the order findings from different detectors appear in, both under a
-// contributor and in the orphan section. Unknown (future) detectors sort last.
+// rank orders detectors; unknown ones sort last.
 func rank(detector string) int {
 	if r, ok := map[string]int{
 		"image-metadata": 0, "video-metadata": 1, "pdf-metadata": 2,
@@ -146,8 +143,6 @@ func rank(detector string) int {
 	return 99
 }
 
-// orphanTitle names the section for findings whose introducing author is not a
-// listed identity (they came in through a merge).
 func orphanTitle(detector string) string {
 	if t, ok := map[string]string{
 		"image-metadata":  "images not tied to a listed identity",
@@ -161,13 +156,10 @@ func orphanTitle(detector string) string {
 	return detector + " findings not tied to a listed identity"
 }
 
-// checkLabel is the short column label for a check, taken from the last segment
-// of its name: "image-location" -> "location", "ds-store-names" -> "names".
-func checkLabel(name string) string {
+func checkLabel(name string) string { // "image-location" -> "location"
 	return name[strings.LastIndexByte(name, '-')+1:]
 }
 
-// Render writes the footprint report for fp and res to w.
 func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, color bool) {
 	pt := painter{w: w, color: color}
 
@@ -273,7 +265,6 @@ func sortFindings(in []rule.Finding) []rule.Finding {
 	return out
 }
 
-// ruleOrder lists the distinct detectors present in fs, in ranked order.
 func ruleOrder(fs []rule.Finding) []string {
 	seen := map[string]bool{}
 	var names []string
@@ -325,7 +316,6 @@ func findingBlock(pt painter, f rule.Finding) {
 	}
 }
 
-// recap prints a bottom-of-report summary line, tagged [WARN] or [INFO].
 func recap(pt painter, warn bool, text string) {
 	tag, code := "[INFO]  ", ansiDim
 	if warn {
@@ -373,9 +363,8 @@ func total(m map[string]int) int {
 	return n
 }
 
-// extBreakdown renders the unread-file tally, most common first. Keys that
-// aren't a real extension (content-hashed names produce thousands) and the long
-// tail collapse into one "other" bucket so the line stays readable.
+// extBreakdown renders the unread-file tally. Non-extension keys (content-hashed
+// names produce thousands) and the tail past 12 fold into "other".
 func extBreakdown(m map[string]int) string {
 	type kv struct {
 		ext string
@@ -420,7 +409,7 @@ func extBreakdown(m map[string]int) string {
 
 func looksExt(e string) bool {
 	if e == "" {
-		return true // "(no ext)" is a meaningful bucket
+		return true
 	}
 	if e[0] != '.' || len(e) > 10 {
 		return false

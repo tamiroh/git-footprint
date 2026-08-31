@@ -1,9 +1,8 @@
 package dsstore
 
-// A .DS_Store is a "buddy allocator" container holding a B-tree of Finder
-// view-setting records, one or more per name. The names are what leaks: every
-// sibling file and folder present when Finder last wrote the file, including
-// ones since deleted.
+// A .DS_Store is a buddy-allocator container holding a B-tree of Finder records
+// keyed by name. Those names — every sibling Finder saw, deleted ones included —
+// are what leaks.
 
 import (
 	"encoding/binary"
@@ -11,8 +10,6 @@ import (
 	"unicode/utf16"
 )
 
-// parseNames returns the distinct file/folder names a .DS_Store recorded,
-// sorted. Anything unexpected in the bytes yields nil rather than a panic.
 func parseNames(b []byte) (names []string) {
 	defer func() { _ = recover() }()
 
@@ -21,8 +18,7 @@ func parseNames(b []byte) (names []string) {
 	}
 	be := binary.BigEndian
 
-	// The buddy allocator's offsets exclude the leading 4 magic bytes.
-	book := int(be.Uint32(b[8:])) + 4
+	book := int(be.Uint32(b[8:])) + 4 // allocator offsets exclude the 4 magic bytes
 	if book < 0 || book+8 > len(b) {
 		return
 	}
@@ -30,7 +26,7 @@ func parseNames(b []byte) (names []string) {
 	p := book + 8
 
 	if nBlocks < 0 || nBlocks > len(b)/4 {
-		return // more block addresses than the file could possibly hold
+		return
 	}
 	addr := make([]uint32, 0, nBlocks)
 	for i := 0; i < nBlocks; i++ {
@@ -40,7 +36,7 @@ func parseNames(b []byte) (names []string) {
 		addr = append(addr, be.Uint32(b[p:]))
 		p += 4
 	}
-	p += ((nBlocks+255)/256*256 - nBlocks) * 4 // the address table is padded to a multiple of 256
+	p += ((nBlocks+255)/256*256 - nBlocks) * 4 // table padded to a multiple of 256
 
 	if p+4 > len(b) {
 		return
@@ -85,7 +81,7 @@ func parseNames(b []byte) (names []string) {
 	}
 
 	seen := map[string]bool{}
-	visited := map[int]bool{} // a B-tree node is walked once; a crafted cycle would not terminate
+	visited := map[int]bool{} // a crafted cycle would otherwise not terminate
 	var walk func(node, depth int)
 	walk = func(node, depth int) {
 		if depth > 40 || visited[node] {
@@ -110,7 +106,7 @@ func parseNames(b []byte) (names []string) {
 				return false
 			}
 			name := decodeUTF16BE(d[pos : pos+nl*2])
-			pos += nl*2 + 4 // name + 4-byte structure id
+			pos += nl*2 + 4 // name + structure id
 			dtype := string(d[pos : pos+4])
 			pos += 4
 			switch dtype {
@@ -156,7 +152,7 @@ func parseNames(b []byte) (names []string) {
 			}
 		}
 		if internal {
-			walk(int(be.Uint32(d[0:])), depth+1) // rightmost child: the node header's P field
+			walk(int(be.Uint32(d[0:])), depth+1) // rightmost child = the header's P field
 		}
 	}
 	walk(int(be.Uint32(head)), 0)

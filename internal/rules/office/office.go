@@ -1,6 +1,4 @@
-// Package office is the rule that reads the author, editor, company and
-// authoring application from a committed OOXML document (.docx / .xlsx / .pptx),
-// which store them as XML in docProps/.
+// Package office reads docProps/ metadata from a committed .docx/.xlsx/.pptx.
 package office
 
 import (
@@ -77,24 +75,15 @@ func (r *Rule) Findings() []rule.Finding {
 
 	out := make([]rule.Finding, 0, len(r.items))
 	for _, it := range r.items {
-		var checks []rule.Check
-		for _, c := range []struct {
-			name  string
-			value string
-			level rule.Level
-		}{
-			{"office-author", firstNonEmpty(it.creator, it.lastMod), rule.Warn},
-			{"office-company", strings.TrimSpace(it.company), rule.Warn},
-			{"office-manager", strings.TrimSpace(it.manager), rule.Warn},
-			{"office-application", it.app, rule.Info},
-			{"office-date", officeDate(it.created), rule.Info},
-		} {
-			if c.value != "" {
-				checks = append(checks, rule.Check{Name: c.name, Level: c.level, Value: c.value})
-			}
-		}
 		out = append(out, rule.Finding{
-			Detector: "office-metadata", Path: it.path, Link: it.link, By: it.by, Checks: checks,
+			Detector: "office-metadata", Path: it.path, Link: it.link, By: it.by,
+			Checks: rule.NonEmpty([]rule.Check{
+				{Name: "office-author", Level: rule.Warn, Value: firstNonEmpty(it.creator, it.lastMod)},
+				{Name: "office-company", Level: rule.Warn, Value: strings.TrimSpace(it.company)},
+				{Name: "office-manager", Level: rule.Warn, Value: strings.TrimSpace(it.manager)},
+				{Name: "office-application", Level: rule.Info, Value: it.app},
+				{Name: "office-date", Level: rule.Info, Value: officeDate(it.created)},
+			}),
 		})
 	}
 	return out
@@ -106,7 +95,7 @@ func unmarshalEntry(f *zip.File, v any) bool {
 		return false
 	}
 	defer rc.Close()
-	data, err := io.ReadAll(io.LimitReader(rc, 1<<20)) // docProps XML is tiny
+	data, err := io.ReadAll(io.LimitReader(rc, 1<<20))
 	if err != nil {
 		return false
 	}

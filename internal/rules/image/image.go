@@ -1,5 +1,4 @@
-// Package image is the rule that reads EXIF metadata — location, artist, camera,
-// authoring software, capture date — from committed image blobs.
+// Package image reads EXIF metadata from committed image blobs.
 package image
 
 import (
@@ -16,17 +15,15 @@ import (
 	"github.com/tamiroh/git-footprint/internal/rule"
 )
 
-// HEIC/HEIF/AVIF/CR3 go through imagemeta v1.0.0's ISOBMFF path, which currently
-// returns nothing — better to leave them in the "not read" tally than to
-// silently pass an iPhone HEIC that carries GPS.
+// no HEIC/HEIF/AVIF/CR3: imagemeta v1.0.0's ISOBMFF path returns nothing, and a
+// silent miss on a GPS-tagged HEIC is worse than "not read".
 var exts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".jpe": true, ".jfif": true, ".png": true,
 	".tif": true, ".tiff": true, ".dng": true, ".cr2": true, ".crw": true,
 	".arw": true, ".nef": true,
 }
 
-// inert image formats carry no field that can hold identifying metadata, so the
-// scan claims them silently rather than listing them as unread.
+// claimed but never read: nothing in an icon can identify anyone.
 var inert = map[string]bool{".ico": true, ".icns": true}
 
 func ext(name string) string { return strings.ToLower(filepath.Ext(name)) }
@@ -41,7 +38,6 @@ type item struct {
 	by         rule.Author
 }
 
-// Rule accumulates one item per image blob that carried metadata.
 type Rule struct{ items []item }
 
 func New() *Rule { return &Rule{} }
@@ -106,10 +102,10 @@ func dedupe(in []item) []item {
 }
 
 func read(blob []byte) (d data) {
-	defer func() { _ = recover() }() // parsers can panic on hostile input
+	defer func() { _ = recover() }()
 
-	// imagemeta's PNG scanner assumes big-endian EXIF; pull the eXIf chunk
-	// ourselves and hand the raw TIFF stream to the (endian-aware) TIFF path.
+	// imagemeta's PNG scanner misreads little-endian EXIF; pull the eXIf chunk
+	// ourselves and feed the raw TIFF to the endian-aware path.
 	decode, src := imagemeta.Decode, bytes.NewReader(blob)
 	if payload := pngEXIF(blob); payload != nil {
 		decode, src = imagemeta.DecodeTiff, bytes.NewReader(payload)
@@ -127,14 +123,13 @@ func read(blob []byte) (d data) {
 		d.creator = mediameta.Clean(x.IFD0.Copyright)
 	}
 	d.camera = mediameta.CameraName(mediameta.Clean(x.CameraMake()), mediameta.Clean(x.IFD0.Model))
-	d.software = mediameta.Clean(x.IFD0.Software) // OS version on phones, editor name on desktop
+	d.software = mediameta.Clean(x.IFD0.Software)
 	if t := x.OriginalDate(); mediameta.Plausible(t) {
 		d.taken = t.Format("2006-01-02 15:04:05")
 	}
 	return
 }
 
-// pngEXIF returns the raw EXIF (TIFF) payload from a PNG's eXIf chunk, or nil.
 func pngEXIF(b []byte) []byte {
 	if len(b) < 8 || string(b[:8]) != "\x89PNG\r\n\x1a\n" {
 		return nil
@@ -152,7 +147,7 @@ func pngEXIF(b []byte) []byte {
 		case "IEND":
 			return nil
 		}
-		p += n + 4 // chunk data + CRC
+		p += n + 4
 	}
 	return nil
 }

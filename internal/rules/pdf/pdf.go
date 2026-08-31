@@ -1,5 +1,4 @@
-// Package pdf is the rule that reads the author, authoring software and creation
-// date from a committed PDF's Info dictionary.
+// Package pdf reads a committed PDF's Info dictionary.
 package pdf
 
 import (
@@ -25,7 +24,6 @@ type item struct {
 	by         rule.Author
 }
 
-// Rule accumulates one item per PDF blob that carried metadata.
 type Rule struct{ items []item }
 
 func New() *Rule { return &Rule{} }
@@ -109,7 +107,7 @@ func software(creator, producer string) string {
 	}
 }
 
-// date parses a PDF date string, "D:20240115093000+09'00'" style.
+// date: "D:20240115093000+09'00'"
 func date(s string) string {
 	s = strings.TrimPrefix(s, "D:")
 	digits := 0

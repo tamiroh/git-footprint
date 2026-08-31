@@ -1,6 +1,4 @@
-// Package archive is the rule that looks inside committed zip archives (which
-// includes .docx, .jar, .crx and friends), feeding every entry back through the
-// other rules.
+// Package archive feeds the entries of a committed zip back through the rules.
 package archive
 
 import (
@@ -12,7 +10,7 @@ import (
 )
 
 const (
-	maxEntry = 64 << 20  // largest entry to decompress
+	maxEntry = 64 << 20
 	maxTotal = 512 << 20 // decompression budget per archive
 )
 
@@ -20,7 +18,7 @@ type Rule struct{}
 
 func New() *Rule { return &Rule{} }
 
-func (Rule) Findings() []rule.Finding { return nil } // it only feeds other rules
+func (Rule) Findings() []rule.Finding { return nil }
 
 func (Rule) Visit(ctx rule.Context, b rule.Blob) {
 	if !isZip(b.Content) {
@@ -28,7 +26,7 @@ func (Rule) Visit(ctx rule.Context, b rule.Blob) {
 	}
 	zr, err := zip.NewReader(bytes.NewReader(b.Content), int64(len(b.Content)))
 	if err != nil {
-		return // magic only: let it fall through to the unread tally
+		return // magic matched but it won't open: leave it unclaimed
 	}
 	ctx.Claim()
 

@@ -1,5 +1,4 @@
-// Package dsstore is the rule that reports the file and folder names a
-// committed macOS .DS_Store leaks.
+// Package dsstore reports the names a committed macOS .DS_Store leaks.
 package dsstore
 
 import (

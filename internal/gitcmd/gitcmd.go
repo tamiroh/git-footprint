@@ -15,7 +15,6 @@ func Run(repo string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// Try runs git and returns trimmed stdout, or "" on any failure.
 func Try(repo string, args ...string) string {
 	out, _ := Run(repo, args...)
 	return strings.TrimSpace(out)
@@ -36,7 +35,7 @@ func Root(path string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
-// HeadBlobs maps each path in HEAD to its blob object name.
+// HeadBlobs maps each HEAD path to its blob sha, for link resolution.
 func HeadBlobs(repo string) map[string]string {
 	out, _ := Run(repo, "ls-tree", "-r", "-z", "HEAD")
 	m := map[string]string{}
@@ -52,8 +51,8 @@ func HeadBlobs(repo string) map[string]string {
 	return m
 }
 
-// CatFileBatch streams the contents of the given blobs through one
-// `git cat-file --batch` process, calling fn for each.
+// CatFileBatch streams the blobs through one `git cat-file --batch`, calling fn
+// for each.
 func CatFileBatch(repo string, shas []string, fn func(sha string, content []byte)) error {
 	cmd := exec.Command("git", "-C", repo, "cat-file", "--batch")
 	stdin, err := cmd.StdinPipe()
@@ -104,9 +103,9 @@ func CatFileBatch(repo string, shas []string, fn func(sha string, content []byte
 		if _, err := io.ReadFull(br, buf); err != nil {
 			break
 		}
-		br.ReadByte() // trailing newline
+		br.ReadByte()
 		fn(cols[0], buf)
 	}
-	io.Copy(io.Discard, br) // let git and the writer goroutine finish
+	io.Copy(io.Discard, br) // drain so git and the writer goroutine can exit
 	return cmd.Wait()
 }

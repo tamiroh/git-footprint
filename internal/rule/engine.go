@@ -11,13 +11,11 @@ import (
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
 )
 
-// Result is everything the walk produced.
 type Result struct {
 	Findings  []Finding
-	Unclaimed map[string]int // extension -> count of binary blobs no rule claimed
+	Unclaimed map[string]int // ext -> count of binary blobs no rule claimed
 }
 
-// Worst reports whether there are any findings and the highest level among them.
 func (r Result) Worst() (found bool, level Level) {
 	for _, f := range r.Findings {
 		found = true
@@ -28,27 +26,24 @@ func (r Result) Worst() (found bool, level Level) {
 	return
 }
 
-// Engine walks a repository's blob history once and drives the rules over it.
 type Engine struct {
 	root  string
 	rules []Rule
 	head  map[string]string
-	links bool // extract historical bytes so hyperlinks resolve (interactive only)
+	links bool
 }
 
-// NewEngine builds the engine. links should be true only when the report will
-// render clickable hyperlinks, since resolving them extracts copies of the
-// leaking files to a temp dir.
+// NewEngine: links true only when the report renders hyperlinks — resolving them
+// writes copies of the leaking files to a temp dir.
 func NewEngine(root string, rules []Rule, links bool) *Engine {
 	return &Engine{root: root, rules: rules, head: gitcmd.HeadBlobs(root), links: links}
 }
 
 const (
-	logRec   = "\x1e" // marks a commit header line (paths are quoted, so they never start with it)
-	fieldSep = "\x00" // between %an and %ae; git forbids NUL in either, so a hostile name can't split
+	logRec   = "\x1e"
+	fieldSep = "\x00" // git forbids NUL in name/email, so a hostile name can't split the line
 )
 
-// Run walks every blob ever added or changed and returns the collected findings.
 func (e *Engine) Run() (Result, error) {
 	if e.links {
 		sweep(filepath.Join(os.TempDir(), "git-footprint"))
@@ -166,17 +161,15 @@ func looksBinary(b []byte) bool {
 
 const tempTTL = time.Hour
 
-// extract writes a blob's bytes to a fresh private file under
-// $TMPDIR/git-footprint/ so a hyperlink can open bytes no longer in the working
-// tree. Run sweeps the dir first; anything left is a copy of a leaking file, so
-// the name carries no more than the report already shows.
+// extract copies a blob to $TMPDIR/git-footprint/ so a hyperlink resolves after
+// the working-tree file is gone. Run sweeps the dir first.
 func (e *Engine) extract(b Blob) string {
 	dir := filepath.Join(os.TempDir(), "git-footprint")
 	if os.MkdirAll(dir, 0o700) != nil {
 		return ""
 	}
 	base, ext := tempStem(b)
-	f, err := os.CreateTemp(dir, base+"-*"+ext) // 0600, unpredictable suffix
+	f, err := os.CreateTemp(dir, base+"-*"+ext)
 	if err != nil {
 		return ""
 	}
@@ -188,8 +181,7 @@ func (e *Engine) extract(b Blob) string {
 	return f.Name()
 }
 
-// tempStem splits a recognisable prefix and the extension for the temp name.
-// "*" is dropped from both since os.CreateTemp treats it as the wildcard.
+// tempStem strips "*" from the name since os.CreateTemp treats it as a wildcard.
 func tempStem(b Blob) (base, ext string) {
 	name := b.Path
 	if i := strings.LastIndex(name, " » "); i >= 0 {

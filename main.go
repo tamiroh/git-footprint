@@ -1,5 +1,5 @@
-// Command git-footprint reveals the personal footprint a git repository
-// exposes about its contributors.
+// Command git-footprint reports what a repository's history reveals about its
+// contributors.
 package main
 
 import (

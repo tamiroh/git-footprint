@@ -1,6 +1,4 @@
-// Package video is the rule that reads QuickTime / ISOBMFF container metadata —
-// location, creator, recording device, creation date — from committed MP4 and
-// MOV blobs.
+// Package video reads QuickTime / ISOBMFF container metadata from MP4 and MOV.
 package video
 
 import (
@@ -33,7 +31,6 @@ type item struct {
 	by         rule.Author
 }
 
-// Rule accumulates one item per video blob that carried metadata.
 type Rule struct{ items []item }
 
 func New() *Rule { return &Rule{} }
@@ -94,13 +91,12 @@ func dedupe(in []item) []item {
 	return out
 }
 
-// read pulls QuickTime / ISOBMFF metadata from an MP4 or MOV blob.
 func read(blob []byte) (d data) {
 	defer func() { _ = recover() }()
 	r := bytes.NewReader(blob)
 
 	var mk, model string
-	var keys []string // QuickTime metadata-item keys, in index order
+	var keys []string // QuickTime metadata keys, indexed from 1
 
 	apply := func(key, val string) {
 		switch {
@@ -110,7 +106,7 @@ func read(blob []byte) (d data) {
 			}
 		case strings.HasSuffix(key, "creationdate") || key == "\xa9day":
 			if tm := normalizeTime(val); tm != "" {
-				d.taken = tm // more specific than an mvhd mux date; overrides it
+				d.taken = tm
 			}
 		case strings.HasSuffix(key, ".make") || key == "\xa9mak":
 			if mk == "" {
@@ -129,10 +125,10 @@ func read(blob []byte) (d data) {
 
 	_, _ = mp4.ReadBoxStructure(r, func(h *mp4.ReadHandle) (any, error) {
 		t := h.BoxInfo.Type.String()
-		raw := string(h.BoxInfo.Type[:]) // "©" atoms: raw is "\xa9xyz", t is "(c)xyz"
+		raw := string(h.BoxInfo.Type[:]) // t renders the 0xA9 prefix as "(c)"; raw keeps the byte
 		switch {
 		case len(h.Path) > 12:
-			return nil, nil // a real box tree is ~7 deep; deeper is a crafted bomb
+			return nil, nil // a real box tree is ~7 deep
 
 		case t == "keys":
 			if pl, _, err := h.ReadPayload(); err == nil {
@@ -143,13 +139,13 @@ func read(blob []byte) (d data) {
 				}
 			}
 
-		case underIlst(h.Path): // an ilst child
+		case underIlst(h.Path):
 			pl, _, err := h.ReadPayload()
 			if err != nil {
 				return nil, nil
 			}
 			// Apple's keys-indexed items (0x00000001…) absorb their data box;
-			// the four-char atoms (©ART…) keep it as a separate child to expand.
+			// four-char atoms (©ART…) keep it as a child to expand.
 			if it, ok := pl.(*mp4.Item); ok {
 				if i := int(binary.BigEndian.Uint32(h.BoxInfo.Type[:])); i >= 1 && i <= len(keys) {
 					apply(keys[i-1], string(it.Data.Data))
@@ -158,7 +154,7 @@ func read(blob []byte) (d data) {
 			}
 			return h.Expand()
 
-		case t == "data": // the value box under a four-char ilst atom
+		case t == "data":
 			if pl, _, err := h.ReadPayload(); err == nil {
 				if val, ok := pl.(*mp4.Data); ok {
 					apply(ilstKey(h.Path, keys), string(val.Data))
@@ -168,22 +164,20 @@ func read(blob []byte) (d data) {
 		case containerBox[t]:
 			return h.Expand()
 
-		case raw == "\xa9xyz": // Android / QuickTime ISO6709 location box
+		case raw == "\xa9xyz":
 			if b := readRaw(h); len(b) > 4 {
 				if lat, lon, ok := parseISO6709(string(b[4:])); ok {
 					d.gps = fmt.Sprintf("%.5f, %.5f", lat, lon)
 				}
 			}
 
-		case raw == "loci": // 3GPP / ffmpeg location box
+		case raw == "loci":
 			if lat, lon, ok := parseLoci(readRaw(h)); ok {
 				d.gps = fmt.Sprintf("%.5f, %.5f", lat, lon)
 			}
 
 		case t == "mvhd":
-			// the movie header's creation time: a real capture date on
-			// camera-original and screen-recorded files, the mux time on
-			// re-encoded ones. Only a fallback — an ilst creationdate wins.
+			// fallback only: capture date on originals, mux time on re-encodes
 			if d.taken == "" {
 				if pl, _, err := h.ReadPayload(); err == nil {
 					if m, ok := pl.(*mp4.Mvhd); ok {
@@ -216,8 +210,6 @@ func mvhdSeconds(m *mp4.Mvhd) int64 {
 	return int64(m.CreationTimeV0)
 }
 
-// ilstKey resolves the key name for a "data" box: its parent ilst entry is
-// either a numeric 1-based index into keys, or a four-char atom like "\xa9ART".
 func ilstKey(path mp4.BoxPath, keys []string) string {
 	if len(path) < 2 {
 		return ""
@@ -237,7 +229,7 @@ func readRaw(h *mp4.ReadHandle) []byte {
 	return buf.Bytes()
 }
 
-// parseISO6709 parses "+37.4219-122.0840+010.000/" style coordinates.
+// parseISO6709: "+37.4219-122.0840+010.000/"
 func parseISO6709(s string) (lat, lon float64, ok bool) {
 	s = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(s), "/"))
 	if len(s) < 2 {
@@ -260,9 +252,8 @@ func parseISO6709(s string) (lat, lon float64, ok bool) {
 	return lat, lon, true
 }
 
-// parseLoci reads a 3GPP "loci" location box body: version+flags (4), language
-// (2), null-terminated name, role (1), then 16.16 fixed-point longitude,
-// latitude, altitude.
+// parseLoci reads a 3GPP "loci" box: version+flags (4), language (2),
+// null-terminated name, role (1), then 16.16 fixed-point lon, lat, altitude.
 func parseLoci(b []byte) (lat, lon float64, ok bool) {
 	if len(b) < 6 {
 		return 0, 0, false
@@ -271,7 +262,7 @@ func parseLoci(b []byte) (lat, lon float64, ok bool) {
 	for p < len(b) && b[p] != 0 {
 		p++
 	}
-	p++ // null terminator
+	p++
 	if p+13 > len(b) {
 		return 0, 0, false
 	}
