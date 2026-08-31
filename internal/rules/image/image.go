@@ -26,7 +26,7 @@ var inert = map[string]bool{".ico": true, ".icns": true}
 
 func ext(name string) string { return strings.ToLower(filepath.Ext(name)) }
 
-type data struct{ gps, creator, camera, software, taken string }
+type data struct{ gps, creator, owner, serial, camera, software, taken string }
 
 func (d data) empty() bool { return d == data{} }
 
@@ -70,7 +70,9 @@ func (r *Rule) Findings() []rule.Finding {
 			Checks: rule.NonEmpty([]rule.Check{
 				{Name: "image-location", Level: rule.Warn, Value: it.gps},
 				{Name: "image-creator", Level: rule.Warn, Value: it.creator},
+				{Name: "image-owner", Level: rule.Warn, Value: it.owner},
 				{Name: "image-camera", Level: rule.Info, Value: it.camera},
+				{Name: "image-serial", Level: rule.Info, Value: it.serial},
 				{Name: "image-software", Level: rule.Info, Value: it.software},
 				{Name: "image-date", Level: rule.Info, Value: it.taken},
 			}),
@@ -79,7 +81,7 @@ func (r *Rule) Findings() []rule.Finding {
 	return out
 }
 
-func revealing(d data) bool { return d.gps != "" || d.creator != "" }
+func revealing(d data) bool { return d.gps != "" || d.creator != "" || d.owner != "" }
 
 func dedupe(in []item) []item {
 	type key struct {
@@ -124,6 +126,8 @@ func read(blob []byte) (d data) {
 	if d.creator == "" {
 		d.creator = mediameta.Clean(x.IFD0.Copyright)
 	}
+	d.owner = mediameta.Clean(x.ExifIFD.CameraOwnerName)
+	d.serial = firstNonEmpty(x.ExifIFD.BodySerialNumber, x.CameraSerial, x.ExifIFD.LensSerial)
 	d.camera = mediameta.CameraName(mediameta.Clean(x.CameraMake()), mediameta.Clean(x.IFD0.Model))
 	d.software = mediameta.Clean(x.IFD0.Software)
 	if t := x.OriginalDate(); mediameta.Plausible(t) {
