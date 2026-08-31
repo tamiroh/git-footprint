@@ -288,19 +288,30 @@ func findingBlock(pt painter, f rule.Finding) {
 	}
 }
 
-func recap(pt painter, warn bool, text string) {
-	tag, code := "[INFO]  ", ansiDim
-	if warn {
-		tag, code = "[WARN]  ", ansiYellow
+type mark int
+
+const (
+	markOK mark = iota // nothing to flag; no tag
+	markInfo
+	markWarn
+)
+
+func recap(pt painter, m mark, text string) {
+	gutter, code := "        ", ansiDim
+	switch m {
+	case markInfo:
+		gutter = "[INFO]  "
+	case markWarn:
+		gutter, code = "[WARN]  ", ansiYellow
 	}
-	pt.put(tag, code)
+	pt.put(gutter, code)
 	pt.put(text+"\n", code)
 }
 
 func summary(pt painter, res rule.Result) {
 	meta := ofDetector(res.Findings, "image-metadata", "video-metadata", "pdf-metadata", "office-metadata")
 	if len(meta) == 0 {
-		recap(pt, false, "no committed file carries embedded metadata")
+		recap(pt, markOK, "no committed file carries embedded metadata")
 	} else {
 		revealing := 0
 		for _, f := range meta {
@@ -311,25 +322,27 @@ func summary(pt painter, res rule.Result) {
 		line := plural(len(meta), "$1 file carries embedded metadata", "$1 files carry embedded metadata")
 		if revealing > 0 {
 			line += " (" + plural(revealing, "$1 reveals", "$1 reveal") + " a location or creator)"
+			recap(pt, markWarn, line)
+		} else {
+			recap(pt, markInfo, line)
 		}
-		recap(pt, revealing > 0, line)
 	}
 
 	if ds := ofDetector(res.Findings, "ds-store"); len(ds) == 0 {
-		recap(pt, false, "no committed .DS_Store")
+		recap(pt, markOK, "no committed .DS_Store")
 	} else {
 		names := 0
 		for _, f := range ds {
 			names += f.Count
 		}
-		recap(pt, true, plural(len(ds), "$1 committed .DS_Store", "$1 committed .DS_Store files")+
+		recap(pt, markWarn, plural(len(ds), "$1 committed .DS_Store", "$1 committed .DS_Store files")+
 			" leaking "+plural(names, "$1 file/folder name", "$1 file/folder names"))
 	}
 
 	if n := total(res.Unclaimed); n == 0 {
-		recap(pt, false, "every committed file was read")
+		recap(pt, markOK, "every committed file was read")
 	} else {
-		recap(pt, false, plural(n, "$1 file", "$1 files")+
+		recap(pt, markInfo, plural(n, "$1 file", "$1 files")+
 			" not read (unsupported format)  ·  "+extBreakdown(res.Unclaimed))
 	}
 }
