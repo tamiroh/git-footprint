@@ -21,8 +21,8 @@ type Result struct {
 func (r Result) Worst() (found bool, level Level) {
 	for _, f := range r.Findings {
 		found = true
-		if f.Level > level {
-			level = f.Level
+		if l := f.Level(); l > level {
+			level = l
 		}
 	}
 	return

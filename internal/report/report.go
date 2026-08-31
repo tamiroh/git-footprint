@@ -134,10 +134,10 @@ func headerBox(pt painter, title string, lines ...string) {
 	pt.put("╰"+rule+"╯\n\n", ansiDim)
 }
 
-// rank fixes the order findings from different rules appear in, both under a
-// contributor and in the orphan section. Unknown (future) rules sort last.
-func rank(ruleName string) int {
-	if r, ok := map[string]int{"metadata": 0, "office": 1, "dsstore": 2}[ruleName]; ok {
+// rank fixes the order findings from different detectors appear in, both under a
+// contributor and in the orphan section. Unknown (future) detectors sort last.
+func rank(detector string) int {
+	if r, ok := map[string]int{"embedded-metadata": 0, "office-metadata": 1, "ds-store": 2}[detector]; ok {
 		return r
 	}
 	return 99
@@ -145,15 +145,21 @@ func rank(ruleName string) int {
 
 // orphanTitle names the section for findings whose introducing author is not a
 // listed identity (they came in through a merge).
-func orphanTitle(ruleName string) string {
+func orphanTitle(detector string) string {
 	if t, ok := map[string]string{
-		"metadata": "media not tied to a listed identity",
-		"office":   "office documents not tied to a listed identity",
-		"dsstore":  ".DS_Store files not tied to a listed identity",
-	}[ruleName]; ok {
+		"embedded-metadata": "media not tied to a listed identity",
+		"office-metadata":   "office documents not tied to a listed identity",
+		"ds-store":          ".DS_Store files not tied to a listed identity",
+	}[detector]; ok {
 		return t
 	}
-	return ruleName + " findings not tied to a listed identity"
+	return detector + " findings not tied to a listed identity"
+}
+
+// checkLabel is the short column label for a check, taken from the last segment
+// of its name: "image-location" -> "location", "ds-store-names" -> "names".
+func checkLabel(name string) string {
+	return name[strings.LastIndexByte(name, '-')+1:]
 }
 
 // Render writes the footprint report for fp and res to w.
@@ -197,7 +203,7 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 		orphans = append(orphans, fs...)
 	}
 	for _, name := range ruleOrder(orphans) {
-		sub := ofRule(orphans, name)
+		sub := ofDetector(orphans, name)
 		sort.SliceStable(sub, func(i, j int) bool { return sub[i].Path < sub[j].Path })
 		pt.put("\n"+orphanTitle(name)+"\n", ansiBold)
 		for _, f := range sub {
@@ -205,8 +211,8 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 		}
 	}
 
-	recapMetadata(pt, append(ofRule(res.Findings, "metadata"), ofRule(res.Findings, "office")...))
-	recapDSStore(pt, ofRule(res.Findings, "dsstore"))
+	recapMetadata(pt, append(ofDetector(res.Findings, "embedded-metadata"), ofDetector(res.Findings, "office-metadata")...))
+	recapDSStore(pt, ofDetector(res.Findings, "ds-store"))
 	if n := total(res.Unclaimed); n > 0 {
 		recap(pt, false, plural(n, "$1 file", "$1 files")+
 			" not read (unsupported format)  ·  "+extBreakdown(res.Unclaimed))
@@ -250,25 +256,25 @@ func identityBlock(pt painter, id identity.Identity, byWho map[[2]string][]rule.
 func sortFindings(in []rule.Finding) []rule.Finding {
 	out := append([]rule.Finding(nil), in...)
 	sort.SliceStable(out, func(i, j int) bool {
-		if a, b := rank(out[i].Rule), rank(out[j].Rule); a != b {
+		if a, b := rank(out[i].Detector), rank(out[j].Detector); a != b {
 			return a < b
 		}
-		if out[i].Level != out[j].Level {
-			return out[i].Level > out[j].Level // Warn before Info
+		if a, b := out[i].Level(), out[j].Level(); a != b {
+			return a > b // Warn before Info
 		}
 		return out[i].Path < out[j].Path
 	})
 	return out
 }
 
-// ruleOrder lists the distinct rule names present in fs, ranked order.
+// ruleOrder lists the distinct detectors present in fs, in ranked order.
 func ruleOrder(fs []rule.Finding) []string {
 	seen := map[string]bool{}
 	var names []string
 	for _, f := range fs {
-		if !seen[f.Rule] {
-			seen[f.Rule] = true
-			names = append(names, f.Rule)
+		if !seen[f.Detector] {
+			seen[f.Detector] = true
+			names = append(names, f.Detector)
 		}
 	}
 	sort.SliceStable(names, func(i, j int) bool {
@@ -280,10 +286,10 @@ func ruleOrder(fs []rule.Finding) []string {
 	return names
 }
 
-func ofRule(in []rule.Finding, name string) []rule.Finding {
+func ofDetector(in []rule.Finding, name string) []rule.Finding {
 	var out []rule.Finding
 	for _, f := range in {
-		if f.Rule == name {
+		if f.Detector == name {
 			out = append(out, f)
 		}
 	}
@@ -292,23 +298,20 @@ func ofRule(in []rule.Finding, name string) []rule.Finding {
 
 func findingBlock(pt painter, f rule.Finding) {
 	label, labelCode, lineCode := "[INFO]", ansiDim, ""
-	if f.Level == rule.Warn {
+	if f.Level() == rule.Warn {
 		label, labelCode, lineCode = "[WARN]", ansiYellow, ansiYellow
 	}
 	pt.put("    "+label+"  ", labelCode)
 	pt.putLink(f.Path, f.Link, lineCode)
 
-	for _, fld := range f.Detail {
-		if fld.Label == "" {
-			pt.put("        " + fld.Value + "\n")
-			continue
-		}
-		gap := 10 - len(fld.Label)
+	for _, c := range f.Checks {
+		name := checkLabel(c.Name)
+		gap := 13 - len(name)
 		if gap < 1 {
 			gap = 1
 		}
-		pt.put("        "+fld.Label+strings.Repeat(" ", gap), ansiDim)
-		pt.put(fld.Value + "\n")
+		pt.put("        "+name+strings.Repeat(" ", gap), ansiDim)
+		pt.put(c.Value + "\n")
 	}
 }
 
@@ -328,7 +331,7 @@ func recapMetadata(pt painter, fs []rule.Finding) {
 	}
 	revealing := 0
 	for _, f := range fs {
-		if f.Level == rule.Warn {
+		if f.Level() == rule.Warn {
 			revealing++
 		}
 	}

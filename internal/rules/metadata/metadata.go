@@ -20,8 +20,6 @@ type Rule struct{ items []item }
 
 func New() *Rule { return &Rule{} }
 
-func (r *Rule) Name() string { return "metadata" }
-
 func (r *Rule) Wants(name string) bool { return handles(name) }
 
 func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
@@ -47,25 +45,31 @@ func (r *Rule) Findings() []rule.Finding {
 
 	out := make([]rule.Finding, 0, len(r.items))
 	for _, it := range r.items {
-		level := rule.Info
-		if it.Revealing() {
-			level = rule.Warn
+		kind := "image"
+		switch {
+		case isVideo(it.path):
+			kind = "video"
+		case isDoc(it.path):
+			kind = "pdf"
 		}
-		var detail []rule.Field
-		for _, f := range []rule.Field{
-			{Label: "location", Value: it.GPS},
-			{Label: "creator", Value: it.Creator},
-			{Label: "device", Value: it.Camera},
-			{Label: "software", Value: it.Software},
-			{Label: "date", Value: it.Taken},
+		var checks []rule.Check
+		for _, c := range []struct {
+			field string
+			value string
+			level rule.Level
+		}{
+			{"location", it.GPS, rule.Warn},
+			{"creator", it.Creator, rule.Warn},
+			{"camera", it.Camera, rule.Info},
+			{"software", it.Software, rule.Info},
+			{"date", it.Taken, rule.Info},
 		} {
-			if f.Value != "" {
-				detail = append(detail, f)
+			if c.value != "" {
+				checks = append(checks, rule.Check{Name: kind + "-" + c.field, Level: c.level, Value: c.value})
 			}
 		}
 		out = append(out, rule.Finding{
-			Rule: "metadata", Level: level, Path: it.path, Link: it.link,
-			By: it.by, Detail: detail,
+			Detector: "embedded-metadata", Path: it.path, Link: it.link, By: it.by, Checks: checks,
 		})
 	}
 	return out

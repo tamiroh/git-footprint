@@ -20,16 +20,36 @@ type Blob struct {
 	depth   int
 }
 
-type Field struct{ Label, Value string } // one detail line; empty Label prints the value alone
+// Check is one named, individually-levelled thing a detector noticed in a blob
+// (ESLint-style): "image-location", "office-author". The name is the identifier
+// a future config toggles; Value is what would leak.
+type Check struct {
+	Name  string
+	Level Level
+	Value string
+}
 
+// Finding is everything one detector found in one blob. A blob can trip several
+// checks (a photo with GPS, a camera model and an editor name); the report shows
+// them as one block and takes the finding's level from its worst check.
 type Finding struct {
-	Rule   string
-	Level  Level
-	Path   string
-	Link   string
-	By     Author
-	Detail []Field
-	Count  int // rule-specific magnitude (e.g. names in a .DS_Store)
+	Detector string
+	Path     string
+	Link     string
+	By       Author
+	Checks   []Check
+	Count    int // detector-specific magnitude (e.g. names in a .DS_Store)
+}
+
+// Level is the finding's worst check level, or Info when it has no checks.
+func (f Finding) Level() Level {
+	l := Info
+	for _, c := range f.Checks {
+		if c.Level > l {
+			l = c.Level
+		}
+	}
+	return l
 }
 
 type Context interface {
@@ -39,10 +59,10 @@ type Context interface {
 	Wants(name string) bool           // would any rule inspect a file with this name? (archive filter)
 }
 
-// Rule detects one kind of finding. Visit runs per blob; Findings runs once
-// after, so a rule can dedupe or aggregate first.
+// Rule is a detector: Visit runs per blob to accumulate, Findings runs once
+// after so the rule can dedupe or aggregate first. Each Finding it emits names
+// its detector and carries one or more individually-levelled checks.
 type Rule interface {
-	Name() string
 	Visit(ctx Context, b Blob)
 	Findings() []Finding
 }

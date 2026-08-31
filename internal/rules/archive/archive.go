@@ -20,8 +20,6 @@ type Rule struct{}
 
 func New() *Rule { return &Rule{} }
 
-func (Rule) Name() string { return "archive" }
-
 func (Rule) Findings() []rule.Finding { return nil } // it only feeds other rules
 
 func (Rule) Visit(ctx rule.Context, b rule.Blob) {

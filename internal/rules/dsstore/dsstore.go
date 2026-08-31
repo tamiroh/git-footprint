@@ -22,8 +22,6 @@ type Rule struct{ items []item }
 
 func New() *Rule { return &Rule{} }
 
-func (r *Rule) Name() string { return "dsstore" }
-
 func (r *Rule) Wants(name string) bool { return filepath.Base(name) == ".DS_Store" }
 
 func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
@@ -42,8 +40,8 @@ func (r *Rule) Findings() []rule.Finding {
 	out := make([]rule.Finding, 0, len(r.items))
 	for _, it := range r.items {
 		out = append(out, rule.Finding{
-			Rule: "dsstore", Level: rule.Warn, Path: it.path, Link: it.link, By: it.by,
-			Detail: []rule.Field{{Label: "", Value: nameList(it.names)}},
+			Detector: "ds-store", Path: it.path, Link: it.link, By: it.by,
+			Checks: []rule.Check{{Name: "ds-store-names", Level: rule.Warn, Value: nameList(it.names)}},
 			Count:  len(it.names),
 		})
 	}
@@ -56,11 +54,7 @@ func nameList(names []string) string {
 	if len(head) > show {
 		head = head[:show]
 	}
-	noun := "names"
-	if len(names) == 1 {
-		noun = "name"
-	}
-	s := fmt.Sprintf("%d %s: %s", len(names), noun, strings.Join(head, ", "))
+	s := strings.Join(head, ", ")
 	if len(names) > show {
 		s += fmt.Sprintf(", +%d more", len(names)-show)
 	}
