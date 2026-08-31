@@ -143,19 +143,6 @@ func rank(detector string) int {
 	return 99
 }
 
-func orphanTitle(detector string) string {
-	if t, ok := map[string]string{
-		"image-metadata":  "images not tied to a listed identity",
-		"video-metadata":  "videos not tied to a listed identity",
-		"pdf-metadata":    "PDFs not tied to a listed identity",
-		"office-metadata": "office documents not tied to a listed identity",
-		"ds-store":        ".DS_Store files not tied to a listed identity",
-	}[detector]; ok {
-		return t
-	}
-	return detector + " findings not tied to a listed identity"
-}
-
 func checkLabel(name string) string { // "image-location" -> "location"
 	return name[strings.LastIndexByte(name, '-')+1:]
 }
@@ -184,12 +171,17 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 			rest = append(rest, id)
 		}
 	}
-	if len(mine) > 0 {
-		sectionHead(pt, "your identities")
-		for _, id := range mine {
-			identityBlock(pt, id, byWho)
-		}
-		sectionHead(pt, "other contributors")
+	sectionHead(pt, "your identities")
+	if len(mine) == 0 {
+		none(pt)
+	}
+	for _, id := range mine {
+		identityBlock(pt, id, byWho)
+	}
+
+	sectionHead(pt, "other contributors")
+	if len(rest) == 0 {
+		none(pt)
 	}
 	for _, id := range rest {
 		identityBlock(pt, id, byWho)
@@ -199,23 +191,21 @@ func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, co
 	for _, fs := range byWho {
 		orphans = append(orphans, fs...)
 	}
-	for _, name := range ruleOrder(orphans) {
-		sub := ofDetector(orphans, name)
-		sort.SliceStable(sub, func(i, j int) bool { return sub[i].Path < sub[j].Path })
-		pt.put("\n"+orphanTitle(name)+"\n", ansiBold)
-		for _, f := range sub {
+	sectionHead(pt, "not tied to a listed identity")
+	if len(orphans) == 0 {
+		none(pt)
+	} else {
+		for _, f := range sortFindings(orphans) {
 			findingBlock(pt, f)
 		}
+		pt.put("\n")
 	}
 
-	recapMetadata(pt, ofDetector(res.Findings,
-		"image-metadata", "video-metadata", "pdf-metadata", "office-metadata"))
-	recapDSStore(pt, ofDetector(res.Findings, "ds-store"))
-	if n := total(res.Unclaimed); n > 0 {
-		recap(pt, false, plural(n, "$1 file", "$1 files")+
-			" not read (unsupported format)  ·  "+extBreakdown(res.Unclaimed))
-	}
+	sectionHead(pt, "summary")
+	summary(pt, res)
 }
+
+func none(pt painter) { pt.put("(none)\n\n", ansiDim) }
 
 func sectionHead(pt painter, title string) {
 	u := strings.ToUpper(title)
@@ -265,24 +255,6 @@ func sortFindings(in []rule.Finding) []rule.Finding {
 	return out
 }
 
-func ruleOrder(fs []rule.Finding) []string {
-	seen := map[string]bool{}
-	var names []string
-	for _, f := range fs {
-		if !seen[f.Detector] {
-			seen[f.Detector] = true
-			names = append(names, f.Detector)
-		}
-	}
-	sort.SliceStable(names, func(i, j int) bool {
-		if a, b := rank(names[i]), rank(names[j]); a != b {
-			return a < b
-		}
-		return names[i] < names[j]
-	})
-	return names
-}
-
 func ofDetector(in []rule.Finding, names ...string) []rule.Finding {
 	want := map[string]bool{}
 	for _, n := range names {
@@ -325,34 +297,41 @@ func recap(pt painter, warn bool, text string) {
 	pt.put(text+"\n", code)
 }
 
-func recapMetadata(pt painter, fs []rule.Finding) {
-	if len(fs) == 0 {
-		return
-	}
-	revealing := 0
-	for _, f := range fs {
-		if f.Level() == rule.Warn {
-			revealing++
-		}
-	}
-	line := plural(len(fs), "$1 file carries embedded metadata", "$1 files carry embedded metadata")
-	if revealing > 0 {
-		recap(pt, true, line+" ("+plural(revealing, "$1 reveals", "$1 reveal")+" a location or creator)")
+func summary(pt painter, res rule.Result) {
+	meta := ofDetector(res.Findings, "image-metadata", "video-metadata", "pdf-metadata", "office-metadata")
+	if len(meta) == 0 {
+		recap(pt, false, "no committed file carries embedded metadata")
 	} else {
-		recap(pt, false, line)
+		revealing := 0
+		for _, f := range meta {
+			if f.Level() == rule.Warn {
+				revealing++
+			}
+		}
+		line := plural(len(meta), "$1 file carries embedded metadata", "$1 files carry embedded metadata")
+		if revealing > 0 {
+			line += " (" + plural(revealing, "$1 reveals", "$1 reveal") + " a location or creator)"
+		}
+		recap(pt, revealing > 0, line)
 	}
-}
 
-func recapDSStore(pt painter, fs []rule.Finding) {
-	if len(fs) == 0 {
-		return
+	if ds := ofDetector(res.Findings, "ds-store"); len(ds) == 0 {
+		recap(pt, false, "no committed .DS_Store")
+	} else {
+		names := 0
+		for _, f := range ds {
+			names += f.Count
+		}
+		recap(pt, true, plural(len(ds), "$1 committed .DS_Store", "$1 committed .DS_Store files")+
+			" leaking "+plural(names, "$1 file/folder name", "$1 file/folder names"))
 	}
-	names := 0
-	for _, f := range fs {
-		names += f.Count
+
+	if n := total(res.Unclaimed); n == 0 {
+		recap(pt, false, "every committed file was read")
+	} else {
+		recap(pt, false, plural(n, "$1 file", "$1 files")+
+			" not read (unsupported format)  ·  "+extBreakdown(res.Unclaimed))
 	}
-	recap(pt, true, plural(len(fs), "$1 committed .DS_Store", "$1 committed .DS_Store files")+
-		" leaking "+plural(names, "$1 file/folder name", "$1 file/folder names"))
 }
 
 func total(m map[string]int) int {
