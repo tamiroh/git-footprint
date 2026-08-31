@@ -1,4 +1,6 @@
-package rule
+// Package engine walks a repository's blob history once and drives the rules
+// over every blob.
+package engine
 
 import (
 	"bytes"
@@ -9,14 +11,15 @@ import (
 	"time"
 
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
+	"github.com/tamiroh/git-footprint/internal/rule"
 )
 
 type Result struct {
-	Findings  []Finding
+	Findings  []rule.Finding
 	Unclaimed map[string]int // ext -> count of binary blobs no rule claimed
 }
 
-func (r Result) Worst() (found bool, level Level) {
+func (r Result) Worst() (found bool, level rule.Level) {
 	for _, f := range r.Findings {
 		found = true
 		if l := f.Level(); l > level {
@@ -28,14 +31,14 @@ func (r Result) Worst() (found bool, level Level) {
 
 type Engine struct {
 	root  string
-	rules []Rule
+	rules []rule.Rule
 	head  map[string]string
 	links bool
 }
 
-// NewEngine: links true only when the report renders hyperlinks — resolving them
+// New: links true only when the report renders hyperlinks — resolving them
 // writes copies of the leaking files to a temp dir.
-func NewEngine(root string, rules []Rule, links bool) *Engine {
+func New(root string, rules []rule.Rule, links bool) *Engine {
 	return &Engine{root: root, rules: rules, head: gitcmd.HeadBlobs(root), links: links}
 }
 
@@ -58,16 +61,16 @@ func (e *Engine) Run() (Result, error) {
 
 	type ref struct {
 		path string
-		by   Author
+		by   rule.Author
 	}
 	bySha := map[string]ref{}
 	var shas []string
-	var by Author
+	var by rule.Author
 	for _, line := range strings.Split(out, "\n") {
 		switch {
 		case strings.HasPrefix(line, logRec):
 			if f := strings.Split(line[len(logRec):], fieldSep); len(f) >= 2 {
-				by = Author{f[0], strings.ToLower(f[1])}
+				by = rule.Author{Name: f[0], Email: strings.ToLower(f[1])}
 			}
 		case strings.HasPrefix(line, ":"):
 			info, path, ok := strings.Cut(line, "\t")
@@ -95,7 +98,7 @@ func (e *Engine) Run() (Result, error) {
 	res := Result{Unclaimed: map[string]int{}}
 	err = gitcmd.CatFileBatch(e.root, shas, func(sha string, content []byte) {
 		r := bySha[sha]
-		e.feed(Blob{Path: r.path, Name: r.path, Content: content, By: r.by, SHA: sha}, &res)
+		e.feed(rule.Blob{Path: r.path, Name: r.path, Content: content, By: r.by, SHA: sha}, 0, &res)
 	})
 	for _, ru := range e.rules {
 		res.Findings = append(res.Findings, ru.Findings()...)
@@ -103,8 +106,8 @@ func (e *Engine) Run() (Result, error) {
 	return res, err
 }
 
-func (e *Engine) feed(b Blob, res *Result) {
-	c := &engineCtx{eng: e, blob: b, res: res}
+func (e *Engine) feed(b rule.Blob, depth int, res *Result) {
+	c := &engineCtx{eng: e, depth: depth, res: res}
 	for _, ru := range e.rules {
 		ru.Visit(c, b)
 	}
@@ -115,7 +118,7 @@ func (e *Engine) feed(b Blob, res *Result) {
 
 type engineCtx struct {
 	eng     *Engine
-	blob    Blob
+	depth   int
 	res     *Result
 	claimed bool
 }
@@ -124,22 +127,21 @@ func (c *engineCtx) Claim() { c.claimed = true }
 
 func (c *engineCtx) Wants(name string) bool {
 	for _, ru := range c.eng.rules {
-		if w, ok := ru.(Wanter); ok && w.Wants(name) {
+		if w, ok := ru.(rule.Wanter); ok && w.Wants(name) {
 			return true
 		}
 	}
 	return false
 }
 
-func (c *engineCtx) Inspect(b Blob) {
-	if c.blob.depth >= 1 {
+func (c *engineCtx) Inspect(b rule.Blob) {
+	if c.depth >= 1 {
 		return // one level of archives only
 	}
-	b.depth = c.blob.depth + 1
-	c.eng.feed(b, c.res)
+	c.eng.feed(b, c.depth+1, c.res)
 }
 
-func (c *engineCtx) Link(b Blob, extract bool) string {
+func (c *engineCtx) Link(b rule.Blob, extract bool) string {
 	if !c.eng.links {
 		return ""
 	}
@@ -163,7 +165,7 @@ const tempTTL = time.Hour
 
 // extract copies a blob to $TMPDIR/git-footprint/ so a hyperlink resolves after
 // the working-tree file is gone. Run sweeps the dir first.
-func (e *Engine) extract(b Blob) string {
+func (e *Engine) extract(b rule.Blob) string {
 	dir := filepath.Join(os.TempDir(), "git-footprint")
 	if os.MkdirAll(dir, 0o700) != nil {
 		return ""
@@ -182,7 +184,7 @@ func (e *Engine) extract(b Blob) string {
 }
 
 // tempStem strips "*" from the name since os.CreateTemp treats it as a wildcard.
-func tempStem(b Blob) (base, ext string) {
+func tempStem(b rule.Blob) (base, ext string) {
 	name := b.Path
 	if i := strings.LastIndex(name, " » "); i >= 0 {
 		name = name[i+len(" » "):]

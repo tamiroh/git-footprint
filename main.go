@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tamiroh/git-footprint/internal/engine"
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
 	"github.com/tamiroh/git-footprint/internal/identity"
 	"github.com/tamiroh/git-footprint/internal/report"
@@ -88,7 +89,7 @@ func run() int {
 	tty := isTerminal(os.Stdout)
 	color := (tty || *forceColor) && !*noColor
 
-	engine := rule.NewEngine(root, []rule.Rule{
+	eng := engine.New(root, []rule.Rule{
 		image.New(),
 		video.New(),
 		pdf.New(),
@@ -96,7 +97,7 @@ func run() int {
 		dsstore.New(),
 		archive.New(),
 	}, color)
-	result, scanErr := engine.Run()
+	result, scanErr := eng.Run()
 
 	out, closePager := startPager(tty && !*noPager)
 	report.Render(out, fp, result, root, color)

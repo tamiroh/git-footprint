@@ -1,5 +1,5 @@
-// Package rule is the detection contract: a Rule inspects every blob and reports
-// Findings.
+// Package rule is the detection contract: a Rule inspects every blob the engine
+// feeds it and reports Findings.
 package rule
 
 type Level int
@@ -17,7 +17,6 @@ type Blob struct {
 	Content []byte
 	By      Author
 	SHA     string
-	depth   int
 }
 
 type Check struct {

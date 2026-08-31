@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tamiroh/git-footprint/internal/engine"
 	"github.com/tamiroh/git-footprint/internal/identity"
 	"github.com/tamiroh/git-footprint/internal/rule"
 )
@@ -147,7 +148,7 @@ func checkLabel(name string) string { // "image-location" -> "location"
 	return name[strings.LastIndexByte(name, '-')+1:]
 }
 
-func Render(w io.Writer, fp identity.Footprint, res rule.Result, repo string, color bool) {
+func Render(w io.Writer, fp identity.Footprint, res engine.Result, repo string, color bool) {
 	pt := painter{w: w, color: color}
 
 	headerBox(pt,
@@ -308,7 +309,7 @@ func recap(pt painter, m mark, text string) {
 	pt.put(text+"\n", code)
 }
 
-func summary(pt painter, res rule.Result) {
+func summary(pt painter, res engine.Result) {
 	meta := ofDetector(res.Findings, "image-metadata", "video-metadata", "pdf-metadata", "office-metadata")
 	if len(meta) == 0 {
 		recap(pt, markOK, "no committed file carries embedded metadata")
