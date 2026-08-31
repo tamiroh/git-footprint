@@ -326,14 +326,22 @@ func total(m map[string]int) int {
 	return n
 }
 
+// extBreakdown renders the unread-file tally, most common first. Keys that
+// aren't a real extension (content-hashed names produce thousands) and the long
+// tail collapse into one "other" bucket so the line stays readable.
 func extBreakdown(m map[string]int) string {
 	type kv struct {
 		ext string
 		n   int
 	}
-	kvs := make([]kv, 0, len(m))
+	var kvs []kv
+	other := 0
 	for e, n := range m {
-		kvs = append(kvs, kv{e, n})
+		if looksExt(e) {
+			kvs = append(kvs, kv{e, n})
+		} else {
+			other += n
+		}
 	}
 	sort.Slice(kvs, func(i, j int) bool {
 		if kvs[i].n != kvs[j].n {
@@ -341,13 +349,39 @@ func extBreakdown(m map[string]int) string {
 		}
 		return kvs[i].ext < kvs[j].ext
 	})
-	parts := make([]string, len(kvs))
+
+	const show = 12
+	var parts []string
 	for i, k := range kvs {
+		if i == show {
+			for _, rest := range kvs[i:] {
+				other += rest.n
+			}
+			break
+		}
 		ext := k.ext
 		if ext == "" {
 			ext = "(no ext)"
 		}
-		parts[i] = fmt.Sprintf("%s ×%d", ext, k.n)
+		parts = append(parts, fmt.Sprintf("%s ×%d", ext, k.n))
+	}
+	if other > 0 {
+		parts = append(parts, fmt.Sprintf("other ×%d", other))
 	}
 	return strings.Join(parts, "  ·  ")
+}
+
+func looksExt(e string) bool {
+	if e == "" {
+		return true // "(no ext)" is a meaningful bucket
+	}
+	if e[0] != '.' || len(e) > 10 {
+		return false
+	}
+	for _, r := range e[1:] {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }
