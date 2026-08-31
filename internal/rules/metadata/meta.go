@@ -150,14 +150,37 @@ func readVideo(blob []byte) (d Data) {
 	var mk, model string
 	var keys []string // QuickTime metadata-item keys, in index order
 
+	apply := func(key, val string) {
+		switch {
+		case strings.HasSuffix(key, "location.ISO6709") || key == "\xa9xyz":
+			if lat, lon, ok := parseISO6709(val); ok {
+				d.GPS = fmt.Sprintf("%.5f, %.5f", lat, lon)
+			}
+		case strings.HasSuffix(key, "creationdate") || key == "\xa9day":
+			if tm := normalizeTime(val); tm != "" {
+				d.Taken = tm // more specific than an mvhd mux date; overrides it
+			}
+		case strings.HasSuffix(key, ".make") || key == "\xa9mak":
+			if mk == "" {
+				mk = val
+			}
+		case strings.HasSuffix(key, ".model") || key == "\xa9mod":
+			if model == "" {
+				model = val
+			}
+		case strings.HasSuffix(key, ".artist") || key == "\xa9ART" || key == "\xa9aut":
+			if d.Creator == "" {
+				d.Creator = clean(val)
+			}
+		}
+	}
+
 	_, _ = mp4.ReadBoxStructure(r, func(h *mp4.ReadHandle) (any, error) {
 		t := h.BoxInfo.Type.String()
 		raw := string(h.BoxInfo.Type[:]) // "©" atoms: raw is "\xa9xyz", t is "(c)xyz"
 		switch {
 		case len(h.Path) > 12:
 			return nil, nil // a real box tree is ~7 deep; deeper is a crafted bomb
-		case containerBox[t] || underIlst(h.Path):
-			return h.Expand()
 
 		case t == "keys":
 			if pl, _, err := h.ReadPayload(); err == nil {
@@ -168,39 +191,30 @@ func readVideo(blob []byte) (d Data) {
 				}
 			}
 
-		case t == "data": // an ilst value; its parent names it
+		case underIlst(h.Path): // an ilst child
 			pl, _, err := h.ReadPayload()
 			if err != nil {
 				return nil, nil
 			}
-			data, ok := pl.(*mp4.Data)
-			if !ok {
+			// Apple's keys-indexed items (0x00000001…) absorb their data box;
+			// the four-char atoms (©ART…) keep it as a separate child to expand.
+			if it, ok := pl.(*mp4.Item); ok {
+				if i := int(binary.BigEndian.Uint32(h.BoxInfo.Type[:])); i >= 1 && i <= len(keys) {
+					apply(keys[i-1], string(it.Data.Data))
+				}
 				return nil, nil
 			}
-			key := ilstKey(h.Path, keys)
-			val := string(data.Data)
-			switch {
-			case strings.HasSuffix(key, "location.ISO6709") || key == "\xa9xyz":
-				if lat, lon, ok := parseISO6709(val); ok {
-					d.GPS = fmt.Sprintf("%.5f, %.5f", lat, lon)
-				}
-			case strings.HasSuffix(key, "creationdate") || key == "\xa9day":
-				if t := normalizeTime(val); t != "" {
-					d.Taken = t // keep an earlier mvhd date if this one is unparseable
-				}
-			case strings.HasSuffix(key, ".make") || key == "\xa9mak":
-				if mk == "" {
-					mk = val
-				}
-			case strings.HasSuffix(key, ".model") || key == "\xa9mod":
-				if model == "" {
-					model = val
-				}
-			case strings.HasSuffix(key, ".artist") || key == "\xa9ART" || key == "\xa9aut":
-				if d.Creator == "" {
-					d.Creator = clean(val)
+			return h.Expand()
+
+		case t == "data": // the value box under a four-char ilst atom
+			if pl, _, err := h.ReadPayload(); err == nil {
+				if data, ok := pl.(*mp4.Data); ok {
+					apply(ilstKey(h.Path, keys), string(data.Data))
 				}
 			}
+
+		case containerBox[t]:
+			return h.Expand()
 
 		case raw == "\xa9xyz": // Android / QuickTime ISO6709 location box
 			if b := readRaw(h); len(b) > 4 {
