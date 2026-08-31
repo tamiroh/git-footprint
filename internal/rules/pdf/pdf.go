@@ -1,4 +1,4 @@
-// Package pdf reads a committed PDF's Info dictionary.
+// Package pdf reads a committed PDF's Info dictionary and XMP packets.
 package pdf
 
 import (
@@ -12,11 +12,15 @@ import (
 
 	"github.com/tamiroh/git-footprint/internal/mediameta"
 	"github.com/tamiroh/git-footprint/internal/rule"
+	"github.com/tamiroh/git-footprint/internal/xmp"
 )
 
-type data struct{ creator, software, taken string }
+type data struct {
+	creators        []string
+	software, taken string
+}
 
-func (d data) empty() bool { return d == data{} }
+func (d data) empty() bool { return len(d.creators) == 0 && d.software == "" && d.taken == "" }
 
 type item struct {
 	data
@@ -43,7 +47,7 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 func (r *Rule) Findings() []rule.Finding {
 	r.items = dedupe(r.items)
 	sort.SliceStable(r.items, func(i, j int) bool {
-		if a, b := r.items[i].creator != "", r.items[j].creator != ""; a != b {
+		if a, b := len(r.items[i].creators) > 0, len(r.items[j].creators) > 0; a != b {
 			return a
 		}
 		return r.items[i].path < r.items[j].path
@@ -51,27 +55,28 @@ func (r *Rule) Findings() []rule.Finding {
 
 	out := make([]rule.Finding, 0, len(r.items))
 	for _, it := range r.items {
+		var checks []rule.Check
+		for _, c := range it.creators {
+			checks = append(checks, rule.Check{Name: "pdf-creator", Level: rule.Warn, Value: c})
+		}
+		checks = append(checks,
+			rule.Check{Name: "pdf-software", Level: rule.Info, Value: it.software},
+			rule.Check{Name: "pdf-date", Level: rule.Info, Value: it.taken},
+		)
 		out = append(out, rule.Finding{
 			Detector: "pdf-metadata", Path: it.path, Link: it.link, By: it.by,
-			Checks: rule.NonEmpty([]rule.Check{
-				{Name: "pdf-creator", Level: rule.Warn, Value: it.creator},
-				{Name: "pdf-software", Level: rule.Info, Value: it.software},
-				{Name: "pdf-date", Level: rule.Info, Value: it.taken},
-			}),
+			Checks: rule.NonEmpty(checks),
 		})
 	}
 	return out
 }
 
 func dedupe(in []item) []item {
-	type key struct {
-		data
-		path, name, email string
-	}
+	type key struct{ creators, software, taken, path, name, email string }
 	seen := map[key]bool{}
 	var out []item
 	for _, it := range in {
-		k := key{it.data, it.path, it.by.Name, it.by.Email}
+		k := key{strings.Join(it.creators, "\x00"), it.software, it.taken, it.path, it.by.Name, it.by.Email}
 		if seen[k] {
 			continue
 		}
@@ -83,14 +88,31 @@ func dedupe(in []item) []item {
 
 func read(blob []byte) (d data) {
 	defer func() { _ = recover() }()
-	r, err := pdf.NewReader(bytes.NewReader(blob), int64(len(blob)))
-	if err != nil {
-		return
+
+	seen := map[string]bool{}
+	add := func(name string) {
+		if n := strings.TrimSpace(name); n != "" && !seen[n] {
+			seen[n] = true
+			d.creators = append(d.creators, n)
+		}
 	}
-	info := r.Trailer().Key("Info")
-	d.creator = mediameta.Clean(info.Key("Author").Text())
-	d.software = software(mediameta.Clean(info.Key("Creator").Text()), mediameta.Clean(info.Key("Producer").Text()))
-	d.taken = date(info.Key("CreationDate").Text())
+
+	if r, err := pdf.NewReader(bytes.NewReader(blob), int64(len(blob))); err == nil {
+		info := r.Trailer().Key("Info")
+		add(mediameta.Clean(info.Key("Author").Text()))
+		d.software = software(mediameta.Clean(info.Key("Creator").Text()), mediameta.Clean(info.Key("Producer").Text()))
+		d.taken = date(info.Key("CreationDate").Text())
+	}
+
+	for _, x := range xmp.All(blob) {
+		add(x.Creator)
+		if d.software == "" {
+			d.software = x.Tool
+		}
+		if d.taken == "" {
+			d.taken = x.Date
+		}
+	}
 	return
 }
 

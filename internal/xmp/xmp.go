@@ -17,12 +17,31 @@ type Data struct {
 
 func (d Data) Empty() bool { return d == Data{} }
 
-// Read finds the <x:xmpmeta> … </x:xmpmeta> packet in blob and parses it.
-func Read(blob []byte) (d Data) {
-	packet := packetOf(blob)
-	if packet == nil {
-		return
+// Read parses the first <x:xmpmeta> … </x:xmpmeta> packet in blob.
+func Read(blob []byte) Data {
+	if p := packetOf(blob); p != nil {
+		return parse(p)
 	}
+	return Data{}
+}
+
+// All parses every packet — a PDF keeps one per incremental save, so an old
+// author survives here after being cleared from the Info dictionary.
+func All(blob []byte) []Data {
+	var out []Data
+	for rest := blob; ; {
+		p := packetOf(rest)
+		if p == nil {
+			return out
+		}
+		if d := parse(p); !d.Empty() {
+			out = append(out, d)
+		}
+		rest = rest[bytes.Index(rest, p)+len(p):]
+	}
+}
+
+func parse(packet []byte) (d Data) {
 	var m meta
 	if xml.Unmarshal(packet, &m) != nil {
 		return
