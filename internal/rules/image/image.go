@@ -1,4 +1,4 @@
-// Package image reads EXIF metadata from committed image blobs.
+// Package image reads EXIF and XMP metadata from committed image blobs.
 package image
 
 import (
@@ -27,9 +27,15 @@ var inert = map[string]bool{".ico": true, ".icns": true}
 
 func ext(name string) string { return strings.ToLower(filepath.Ext(name)) }
 
-type data struct{ gps, creator, owner, serial, camera, software, taken string }
+type data struct {
+	gps, creator, owner, serial, camera, software, taken string
+	people                                               []string
+}
 
-func (d data) empty() bool { return d == data{} }
+func (d data) empty() bool {
+	return d.gps == "" && d.creator == "" && d.owner == "" && d.serial == "" &&
+		d.camera == "" && d.software == "" && d.taken == "" && len(d.people) == 0
+}
 
 type item struct {
 	data
@@ -66,33 +72,41 @@ func (r *Rule) Findings() []rule.Finding {
 
 	out := make([]rule.Finding, 0, len(r.items))
 	for _, it := range r.items {
+		checks := []rule.Check{
+			{Name: "image-location", Level: rule.Warn, Value: it.gps},
+			{Name: "image-creator", Level: rule.Warn, Value: it.creator},
+			{Name: "image-owner", Level: rule.Warn, Value: it.owner},
+		}
+		for _, p := range it.people {
+			checks = append(checks, rule.Check{Name: "image-person", Level: rule.Warn, Value: p})
+		}
+		checks = append(checks,
+			rule.Check{Name: "image-camera", Level: rule.Info, Value: it.camera},
+			rule.Check{Name: "image-serial", Level: rule.Info, Value: it.serial},
+			rule.Check{Name: "image-software", Level: rule.Info, Value: it.software},
+			rule.Check{Name: "image-date", Level: rule.Info, Value: it.taken},
+		)
 		out = append(out, rule.Finding{
 			Detector: "image-metadata", Path: it.path, Link: it.link, By: it.by,
-			Checks: rule.NonEmpty([]rule.Check{
-				{Name: "image-location", Level: rule.Warn, Value: it.gps},
-				{Name: "image-creator", Level: rule.Warn, Value: it.creator},
-				{Name: "image-owner", Level: rule.Warn, Value: it.owner},
-				{Name: "image-camera", Level: rule.Info, Value: it.camera},
-				{Name: "image-serial", Level: rule.Info, Value: it.serial},
-				{Name: "image-software", Level: rule.Info, Value: it.software},
-				{Name: "image-date", Level: rule.Info, Value: it.taken},
-			}),
+			Checks: rule.NonEmpty(checks),
 		})
 	}
 	return out
 }
 
-func revealing(d data) bool { return d.gps != "" || d.creator != "" || d.owner != "" }
+func revealing(d data) bool {
+	return d.gps != "" || d.creator != "" || d.owner != "" || len(d.people) > 0
+}
 
 func dedupe(in []item) []item {
-	type key struct {
-		data
-		path, name, email string
-	}
+	type key struct{ gps, creator, owner, serial, camera, software, taken, people, path, name, email string }
 	seen := map[key]bool{}
 	var out []item
 	for _, it := range in {
-		k := key{it.data, it.path, it.by.Name, it.by.Email}
+		k := key{
+			it.gps, it.creator, it.owner, it.serial, it.camera, it.software, it.taken,
+			strings.Join(it.people, "\x00"), it.path, it.by.Name, it.by.Email,
+		}
 		if seen[k] {
 			continue
 		}
@@ -109,9 +123,10 @@ func read(blob []byte) (d data) {
 		d = readEXIF(blob)
 	}
 
-	// XMP fills what EXIF left blank — for a GIF that's everything.
-	if d.creator == "" || d.software == "" || d.taken == "" {
-		x := xmp.Read(blob)
+	// XMP fills what EXIF can't: face-tagged names, and any blank creator /
+	// software / date (for a GIF that's everything).
+	if x := xmp.Read(blob); !x.Empty() {
+		d.people = x.People
 		if d.creator == "" {
 			d.creator = x.Creator
 		}

@@ -10,12 +10,15 @@ import (
 )
 
 type Data struct {
-	Creator string // dc:creator
-	Tool    string // xmp:CreatorTool
-	Date    string // xmp:CreateDate / photoshop:DateCreated, normalised
+	Creator string   // dc:creator
+	Tool    string   // xmp:CreatorTool
+	Date    string   // xmp:CreateDate / photoshop:DateCreated, normalised
+	People  []string // names tagged on face regions (mwg-rs / Microsoft)
 }
 
-func (d Data) Empty() bool { return d == Data{} }
+func (d Data) Empty() bool {
+	return d.Creator == "" && d.Tool == "" && d.Date == "" && len(d.People) == 0
+}
 
 // Read parses the first <x:xmpmeta> … </x:xmpmeta> packet in blob.
 func Read(blob []byte) Data {
@@ -46,6 +49,7 @@ func parse(packet []byte) (d Data) {
 	if xml.Unmarshal(packet, &m) != nil {
 		return
 	}
+	seen := map[string]bool{}
 	for _, desc := range m.Desc {
 		if d.Creator == "" {
 			d.Creator = mediameta.FirstNonEmpty(desc.Creators...)
@@ -55,6 +59,14 @@ func parse(packet []byte) (d Data) {
 		}
 		if d.Date == "" {
 			d.Date = normDate(mediameta.FirstNonEmpty(desc.DateAttr, desc.DateEl, desc.DateCreated))
+		}
+		for _, list := range [][]string{desc.RegionNames, desc.MSRegionNames} {
+			for _, name := range list {
+				if n := mediameta.FirstNonEmpty(name); n != "" && !seen[n] {
+					seen[n] = true
+					d.People = append(d.People, n)
+				}
+			}
 		}
 	}
 	return
@@ -79,12 +91,14 @@ type meta struct {
 
 // RDF carries a property as an attribute or a child element; XMP uses both.
 type desc struct {
-	ToolAttr    string   `xml:"CreatorTool,attr"`
-	ToolEl      string   `xml:"CreatorTool"`
-	DateAttr    string   `xml:"CreateDate,attr"`
-	DateEl      string   `xml:"CreateDate"`
-	DateCreated string   `xml:"DateCreated"`
-	Creators    []string `xml:"creator>Seq>li"`
+	ToolAttr      string   `xml:"CreatorTool,attr"`
+	ToolEl        string   `xml:"CreatorTool"`
+	DateAttr      string   `xml:"CreateDate,attr"`
+	DateEl        string   `xml:"CreateDate"`
+	DateCreated   string   `xml:"DateCreated"`
+	Creators      []string `xml:"creator>Seq>li"`
+	RegionNames   []string `xml:"Regions>RegionList>Bag>li>Name"`              // mwg-rs
+	MSRegionNames []string `xml:"RegionInfo>Regions>Bag>li>PersonDisplayName"` // Microsoft
 }
 
 func normDate(s string) string {
