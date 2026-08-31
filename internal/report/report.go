@@ -297,10 +297,10 @@ const (
 )
 
 func recap(pt painter, m mark, text string) {
-	gutter, code := "        ", ansiDim
+	gutter, code := "        ", ansiGreen
 	switch m {
 	case markInfo:
-		gutter = "[INFO]  "
+		gutter, code = "[INFO]  ", ansiDim
 	case markWarn:
 		gutter, code = "[WARN]  ", ansiYellow
 	}
