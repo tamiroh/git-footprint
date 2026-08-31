@@ -13,11 +13,5 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - name: gofmt
-        run: |
-          out=$(gofmt -l .)
-          if [ -n "$out" ]; then
-            echo "Not gofmt-formatted:"
-            echo "$out"
-            exit 1
-          fi
+      - name: check
+        run: make check
