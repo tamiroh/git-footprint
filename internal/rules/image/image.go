@@ -13,6 +13,7 @@ import (
 
 	"github.com/tamiroh/git-footprint/internal/mediameta"
 	"github.com/tamiroh/git-footprint/internal/rule"
+	"github.com/tamiroh/git-footprint/internal/xmp"
 )
 
 var exts = map[string]bool{
@@ -104,10 +105,27 @@ func dedupe(in []item) []item {
 func read(blob []byte) (d data) {
 	defer func() { _ = recover() }()
 
-	if bytes.HasPrefix(blob, []byte("GIF8")) {
-		return readXMP(blob)
+	if !bytes.HasPrefix(blob, []byte("GIF8")) {
+		d = readEXIF(blob)
 	}
 
+	// XMP fills what EXIF left blank — for a GIF that's everything.
+	if d.creator == "" || d.software == "" || d.taken == "" {
+		x := xmp.Read(blob)
+		if d.creator == "" {
+			d.creator = x.Creator
+		}
+		if d.software == "" {
+			d.software = x.Tool
+		}
+		if d.taken == "" {
+			d.taken = x.Date
+		}
+	}
+	return
+}
+
+func readEXIF(blob []byte) (d data) {
 	// imagemeta's PNG scanner misreads little-endian EXIF; pull the eXIf chunk
 	// ourselves and feed the raw TIFF to the endian-aware path.
 	decode, src := imagemeta.Decode, bytes.NewReader(blob)
@@ -127,7 +145,7 @@ func read(blob []byte) (d data) {
 		d.creator = mediameta.Clean(x.IFD0.Copyright)
 	}
 	d.owner = mediameta.Clean(x.ExifIFD.CameraOwnerName)
-	d.serial = firstNonEmpty(x.ExifIFD.BodySerialNumber, x.CameraSerial, x.ExifIFD.LensSerial)
+	d.serial = mediameta.FirstNonEmpty(x.ExifIFD.BodySerialNumber, x.CameraSerial, x.ExifIFD.LensSerial)
 	d.camera = mediameta.CameraName(mediameta.Clean(x.CameraMake()), mediameta.Clean(x.IFD0.Model))
 	d.software = mediameta.Clean(x.IFD0.Software)
 	if t := x.OriginalDate(); mediameta.Plausible(t) {

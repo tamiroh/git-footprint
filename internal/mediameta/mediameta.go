@@ -8,6 +8,15 @@ import (
 
 func Clean(s string) string { return strings.TrimRight(s, "\x00 ") }
 
+func FirstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 // Plausible rejects timestamps a corrupt or crafted field would render literally.
 func Plausible(t time.Time) bool {
 	return t.Year() >= 1980 && t.Year() <= time.Now().Year()+1

@@ -1,40 +1,47 @@
-package image
+// Package xmp reads the XMP metadata packet an image, PDF or video may carry.
+package xmp
 
 import (
 	"bytes"
 	"encoding/xml"
-	"strings"
 	"time"
 
 	"github.com/tamiroh/git-footprint/internal/mediameta"
 )
 
-// readXMP pulls creator, authoring tool and creation date from an XMP packet,
-// the only metadata channel a GIF has.
-func readXMP(blob []byte) (d data) {
-	packet := xmpPacket(blob)
+type Data struct {
+	Creator string // dc:creator
+	Tool    string // xmp:CreatorTool
+	Date    string // xmp:CreateDate / photoshop:DateCreated, normalised
+}
+
+func (d Data) Empty() bool { return d == Data{} }
+
+// Read finds the <x:xmpmeta> … </x:xmpmeta> packet in blob and parses it.
+func Read(blob []byte) (d Data) {
+	packet := packetOf(blob)
 	if packet == nil {
 		return
 	}
-	var m xmpMeta
+	var m meta
 	if xml.Unmarshal(packet, &m) != nil {
 		return
 	}
-	for _, x := range m.Desc {
-		if d.creator == "" {
-			d.creator = firstNonEmpty(x.Creators...)
+	for _, desc := range m.Desc {
+		if d.Creator == "" {
+			d.Creator = mediameta.FirstNonEmpty(desc.Creators...)
 		}
-		if d.software == "" {
-			d.software = mediameta.Clean(firstNonEmpty(x.ToolAttr, x.ToolEl))
+		if d.Tool == "" {
+			d.Tool = mediameta.Clean(mediameta.FirstNonEmpty(desc.ToolAttr, desc.ToolEl))
 		}
-		if d.taken == "" {
-			d.taken = xmpDate(firstNonEmpty(x.DateAttr, x.DateEl, x.DateCreated))
+		if d.Date == "" {
+			d.Date = normDate(mediameta.FirstNonEmpty(desc.DateAttr, desc.DateEl, desc.DateCreated))
 		}
 	}
 	return
 }
 
-func xmpPacket(b []byte) []byte {
+func packetOf(b []byte) []byte {
 	i := bytes.Index(b, []byte("<x:xmpmeta"))
 	if i < 0 {
 		return nil
@@ -47,12 +54,12 @@ func xmpPacket(b []byte) []byte {
 	return b[i : i+j+len(end)]
 }
 
-type xmpMeta struct {
-	Desc []xmpDesc `xml:"RDF>Description"`
+type meta struct {
+	Desc []desc `xml:"RDF>Description"`
 }
 
 // RDF carries a property as an attribute or a child element; XMP uses both.
-type xmpDesc struct {
+type desc struct {
 	ToolAttr    string   `xml:"CreatorTool,attr"`
 	ToolEl      string   `xml:"CreatorTool"`
 	DateAttr    string   `xml:"CreateDate,attr"`
@@ -61,16 +68,7 @@ type xmpDesc struct {
 	Creators    []string `xml:"creator>Seq>li"`
 }
 
-func firstNonEmpty(vs ...string) string {
-	for _, v := range vs {
-		if s := strings.TrimSpace(v); s != "" {
-			return s
-		}
-	}
-	return ""
-}
-
-func xmpDate(s string) string {
+func normDate(s string) string {
 	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
 		if t, err := time.Parse(layout, s); err == nil && mediameta.Plausible(t) {
 			return t.Format("2006-01-02 15:04:05")
