@@ -48,8 +48,8 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 
 	var it item
 	for _, f := range zr.File {
-		switch f.Name {
-		case "docProps/core.xml":
+		switch {
+		case f.Name == "docProps/core.xml":
 			var c struct {
 				Creator        string `xml:"creator"`
 				LastModifiedBy string `xml:"lastModifiedBy"`
@@ -58,7 +58,7 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 			if unmarshalEntry(f, &c) {
 				it.creator, it.lastMod, it.created = c.Creator, c.LastModifiedBy, c.Created
 			}
-		case "docProps/app.xml":
+		case f.Name == "docProps/app.xml":
 			var a struct {
 				Application   string `xml:"Application"`
 				AppVersion    string `xml:"AppVersion"`
@@ -70,7 +70,7 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 				it.app = strings.TrimSpace(a.Application + " " + a.AppVersion)
 				it.company, it.manager, it.hlinkBase = a.Company, a.Manager, a.HyperlinkBase
 			}
-		case "docProps/custom.xml":
+		case f.Name == "docProps/custom.xml":
 			var c struct {
 				Props []struct {
 					Name string `xml:"name,attr"`
@@ -84,7 +84,7 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 					}
 				}
 			}
-		case "word/comments.xml", "word/document.xml", "word/people.xml":
+		case hasAuthors(f.Name):
 			it.contributors = append(it.contributors, entryAuthors(f)...)
 		}
 	}
@@ -160,6 +160,17 @@ func contributorChecks(it item) []rule.Check {
 	return out
 }
 
+// hasAuthors is true for the OOXML parts that name comment or tracked-change
+// authors: word/, and the xlsx / pptx author lists.
+func hasAuthors(name string) bool {
+	switch name {
+	case "word/comments.xml", "word/document.xml", "word/people.xml",
+		"ppt/commentAuthors.xml", "ppt/authors.xml":
+		return true
+	}
+	return strings.HasPrefix(name, "xl/comments") || strings.HasPrefix(name, "xl/persons/")
+}
+
 func entryAuthors(f *zip.File) []string {
 	rc, err := f.Open()
 	if err != nil {
@@ -170,27 +181,52 @@ func entryAuthors(f *zip.File) []string {
 	dec := xml.NewDecoder(io.LimitReader(rc, 8<<20))
 	seen := map[string]bool{}
 	var out []string
+	add := func(v string) {
+		if v = strings.TrimSpace(v); v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+
+	inAuthorEl := false
 	for {
 		tok, err := dec.Token()
 		if err != nil {
 			return out
 		}
-		se, ok := tok.(xml.StartElement)
-		if !ok {
-			continue
-		}
-		switch se.Name.Local {
-		case "ins", "del", "comment", "person":
-			for _, a := range se.Attr {
-				if a.Name.Local == "author" {
-					if v := strings.TrimSpace(a.Value); v != "" && !seen[v] {
-						seen[v] = true
-						out = append(out, v)
-					}
-				}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "ins", "del", "comment": // word: w:author attribute
+				add(attr(t, "author"))
+			case "person": // word w15:person, or xlsx person
+				add(attr(t, "author"))
+				add(attr(t, "displayName"))
+			case "cmAuthor": // pptx commentAuthors
+				add(attr(t, "name"))
+			case "author": // pptx authors (name attr) or xlsx comments (element text)
+				add(attr(t, "name"))
+				inAuthorEl = true
+			}
+		case xml.CharData:
+			if inAuthorEl {
+				add(string(t))
+			}
+		case xml.EndElement:
+			if t.Name.Local == "author" {
+				inAuthorEl = false
 			}
 		}
 	}
+}
+
+func attr(e xml.StartElement, local string) string {
+	for _, a := range e.Attr {
+		if a.Name.Local == local {
+			return a.Value
+		}
+	}
+	return ""
 }
 
 func customChecks(props []customProp) []rule.Check {
