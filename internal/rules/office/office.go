@@ -22,11 +22,12 @@ type item struct {
 	by                                                          rule.Author
 	creator, lastMod, app, company, manager, hlinkBase, created string
 	custom                                                      []customProp
+	contributors                                                []string
 }
 
 type customProp struct {
-	text string // "name = value"
-	leak bool   // value looks like a path, address or URL
+	text string
+	leak bool
 }
 
 type Rule struct{ items []item }
@@ -83,10 +84,12 @@ func (r *Rule) Visit(ctx rule.Context, b rule.Blob) {
 					}
 				}
 			}
+		case "word/comments.xml", "word/document.xml", "word/people.xml":
+			it.contributors = append(it.contributors, entryAuthors(f)...)
 		}
 	}
-	if it.creator == "" && it.lastMod == "" && it.app == "" && it.company == "" &&
-		it.manager == "" && it.hlinkBase == "" && len(it.custom) == 0 {
+	if it.creator == "" && it.lastMod == "" && it.app == "" && it.company == "" && it.manager == "" &&
+		it.hlinkBase == "" && len(it.custom) == 0 && len(it.contributors) == 0 {
 		return
 	}
 	it.path, it.by, it.link = b.Path, b.By, ctx.Link(b, true)
@@ -105,6 +108,7 @@ func (r *Rule) Findings() []rule.Finding {
 			{Name: "office-manager", Level: rule.Warn, Value: strings.TrimSpace(it.manager)},
 			{Name: "office-path", Level: rule.Warn, Value: strings.TrimSpace(it.hlinkBase)},
 		}
+		checks = append(checks, contributorChecks(it)...)
 		checks = append(checks, customChecks(it.custom)...)
 		checks = append(checks,
 			rule.Check{Name: "office-application", Level: rule.Info, Value: it.app},
@@ -138,8 +142,57 @@ func officeDate(s string) string {
 	return ""
 }
 
-// customChecks renders the custom properties, path/address/URL ones first and as
-// Warn, the rest as Info, capped so a DMS-stamped file can't flood the report.
+func contributorChecks(it item) []rule.Check {
+	seen := map[string]bool{
+		strings.TrimSpace(it.creator): true,
+		strings.TrimSpace(it.lastMod): true,
+	}
+	names := append([]string(nil), it.contributors...)
+	sort.Strings(names)
+
+	var out []rule.Check
+	for _, name := range names {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, rule.Check{Name: "office-contributor", Level: rule.Warn, Value: name})
+		}
+	}
+	return out
+}
+
+func entryAuthors(f *zip.File) []string {
+	rc, err := f.Open()
+	if err != nil {
+		return nil
+	}
+	defer rc.Close()
+
+	dec := xml.NewDecoder(io.LimitReader(rc, 8<<20))
+	seen := map[string]bool{}
+	var out []string
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return out
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch se.Name.Local {
+		case "ins", "del", "comment", "person":
+			for _, a := range se.Attr {
+				if a.Name.Local == "author" {
+					if v := strings.TrimSpace(a.Value); v != "" && !seen[v] {
+						seen[v] = true
+						out = append(out, v)
+					}
+				}
+			}
+		}
+	}
+}
+
 func customChecks(props []customProp) []rule.Check {
 	sort.SliceStable(props, func(i, j int) bool { return props[i].leak && !props[j].leak })
 
