@@ -137,7 +137,7 @@ func headerBox(pt painter, title string, lines ...string) {
 func rank(detector string) int {
 	if r, ok := map[string]int{
 		"image-metadata": 0, "video-metadata": 1, "pdf-metadata": 2,
-		"office-metadata": 3, "ds-store": 4, "archive": 5,
+		"office-metadata": 3, "font-metadata": 4, "ds-store": 5, "archive": 6,
 	}[detector]; ok {
 		return r
 	}
@@ -310,7 +310,7 @@ func recap(pt painter, m mark, text string) {
 }
 
 func summary(pt painter, res engine.Result) {
-	meta := ofDetector(res.Findings, "image-metadata", "video-metadata", "pdf-metadata", "office-metadata")
+	meta := ofDetector(res.Findings, "image-metadata", "video-metadata", "pdf-metadata", "office-metadata", "font-metadata")
 	if len(meta) == 0 {
 		recap(pt, markOK, "no committed file carries embedded metadata")
 	} else {

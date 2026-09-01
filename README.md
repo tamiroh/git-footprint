@@ -25,9 +25,10 @@ Today `git footprint` reports, per contributor:
 
 - every author/committer identity in the history
 - embedded metadata (location, creator, camera, software, creation date) of any
-  committed image (JPEG, PNG, TIFF, camera RAW), video (MP4, MOV), PDF or Office
-  document (`.docx`, `.xlsx`, `.pptx`), and of images, PDFs, Office documents and
-  `.DS_Store` files inside a committed zip
+  committed image (JPEG, PNG, TIFF, camera RAW), video (MP4, MOV), PDF, Office
+  document (`.docx`, `.xlsx`, `.pptx`) or font (`.ttf`, `.otf`, `.ttc`, `.woff`),
+  and of images, PDFs, Office documents and `.DS_Store` files inside a committed
+  zip
 - the file/folder names a committed `.DS_Store` leaks
 
 Planned:
