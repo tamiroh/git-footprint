@@ -19,7 +19,7 @@ import (
 var exts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".jpe": true, ".jfif": true, ".png": true,
 	".tif": true, ".tiff": true, ".dng": true, ".cr2": true, ".crw": true,
-	".arw": true, ".nef": true, ".gif": true,
+	".arw": true, ".nef": true, ".gif": true, ".webp": true,
 }
 
 // claimed but never read: nothing in an icon can identify anyone.
@@ -141,11 +141,21 @@ func read(blob []byte) (d data) {
 }
 
 func readEXIF(blob []byte) (d data) {
-	// imagemeta's PNG scanner misreads little-endian EXIF; pull the eXIf chunk
-	// ourselves and feed the raw TIFF to the endian-aware path.
+	// imagemeta's PNG scanner misreads little-endian EXIF, and its RIFF path
+	// scans loosely; pull the container's own EXIF chunk and feed the raw TIFF
+	// to the endian-aware path.
 	decode, src := imagemeta.Decode, bytes.NewReader(blob)
-	if payload := pngEXIF(blob); payload != nil {
+	switch {
+	case isWebP(blob):
+		payload := webpEXIF(blob)
+		if payload == nil {
+			return
+		}
 		decode, src = imagemeta.DecodeTiff, bytes.NewReader(payload)
+	default:
+		if payload := pngEXIF(blob); payload != nil {
+			decode, src = imagemeta.DecodeTiff, bytes.NewReader(payload)
+		}
 	}
 	x, err := decode(src)
 	if err != nil {
@@ -187,6 +197,26 @@ func pngEXIF(b []byte) []byte {
 			return nil
 		}
 		p += n + 4
+	}
+	return nil
+}
+
+func isWebP(b []byte) bool {
+	return len(b) >= 12 && string(b[:4]) == "RIFF" && string(b[8:12]) == "WEBP"
+}
+
+func webpEXIF(b []byte) []byte {
+	for p := 12; p+8 <= len(b); {
+		fourcc := string(b[p : p+4])
+		n := int(binary.LittleEndian.Uint32(b[p+4:]))
+		p += 8
+		if n < 0 || p+n > len(b) {
+			return nil
+		}
+		if fourcc == "EXIF" {
+			return bytes.TrimPrefix(b[p:p+n], []byte("Exif\x00\x00"))
+		}
+		p += n + (n & 1) // chunks are padded to an even length
 	}
 	return nil
 }
