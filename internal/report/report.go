@@ -151,12 +151,15 @@ func checkLabel(name string) string { // "image-location" -> "location"
 func Render(w io.Writer, fp identity.Footprint, res engine.Result, repo string, color bool) {
 	pt := painter{w: w, color: color}
 
-	headerBox(pt,
-		"git-footprint",
-		repo,
-		plural(fp.TotalCommits, "$1 commit", "$1 commits")+" across "+
-			plural(len(fp.Identities), "$1 identity", "$1 identities"),
-	)
+	// No identities means a plain directory was scanned, not git history: the
+	// findings still stand, but there are no contributors to hang them on.
+	git := len(fp.Identities) > 0
+	subtitle := plural(res.Scanned, "scanned $1 file", "scanned $1 files")
+	if git {
+		subtitle = plural(fp.TotalCommits, "$1 commit", "$1 commits") + " across " +
+			plural(len(fp.Identities), "$1 identity", "$1 identities")
+	}
+	headerBox(pt, "git-footprint", repo, subtitle)
 
 	byWho := map[[2]string][]rule.Finding{}
 	for _, f := range res.Findings {
@@ -203,7 +206,7 @@ func Render(w io.Writer, fp identity.Footprint, res engine.Result, repo string, 
 	}
 
 	sectionHead(pt, "summary")
-	summary(pt, res)
+	summary(pt, res, git)
 }
 
 func none(pt painter) { pt.put("(none)\n\n", ansiDim) }
@@ -309,10 +312,16 @@ func recap(pt painter, m mark, text string) {
 	pt.put(text+"\n", code)
 }
 
-func summary(pt painter, res engine.Result) {
+func summary(pt painter, res engine.Result, git bool) {
+	// "committed" only fits git history; a bare directory scan just has files.
+	adj := ""
+	if git {
+		adj = "committed "
+	}
+
 	meta := ofDetector(res.Findings, "image-metadata", "video-metadata", "pdf-metadata", "office-metadata", "font-metadata")
 	if len(meta) == 0 {
-		recap(pt, markOK, "no committed file carries embedded metadata")
+		recap(pt, markOK, "no "+adj+"file carries embedded metadata")
 	} else {
 		revealing := 0
 		for _, f := range meta {
@@ -330,25 +339,25 @@ func summary(pt painter, res engine.Result) {
 	}
 
 	if ds := ofDetector(res.Findings, "ds-store"); len(ds) == 0 {
-		recap(pt, markOK, "no committed .DS_Store")
+		recap(pt, markOK, "no "+adj+".DS_Store")
 	} else {
 		names := 0
 		for _, f := range ds {
 			names += f.Count
 		}
-		recap(pt, markWarn, plural(len(ds), "$1 committed .DS_Store", "$1 committed .DS_Store files")+
+		recap(pt, markWarn, plural(len(ds), "$1 "+adj+".DS_Store", "$1 "+adj+".DS_Store files")+
 			" leaking "+plural(names, "$1 file/folder name", "$1 file/folder names"))
 	}
 
 	if arc := ofDetector(res.Findings, "archive"); len(arc) == 0 {
-		recap(pt, markOK, "no committed archive names its owner")
+		recap(pt, markOK, "no "+adj+"archive names its owner")
 	} else {
 		recap(pt, markWarn, plural(len(arc),
-			"$1 committed archive names its owner", "$1 committed archives name their owner"))
+			"$1 "+adj+"archive names its owner", "$1 "+adj+"archives name their owner"))
 	}
 
 	if n := total(res.Unclaimed); n == 0 {
-		recap(pt, markOK, "every committed file was read")
+		recap(pt, markOK, "every "+adj+"file was read")
 	} else {
 		recap(pt, markInfo, plural(n, "$1 file", "$1 files")+
 			" not read (unsupported format)  ·  "+extBreakdown(res.Unclaimed))

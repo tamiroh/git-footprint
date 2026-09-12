@@ -20,6 +20,7 @@ type Source interface {
 type Result struct {
 	Findings  []rule.Finding
 	Unclaimed map[string]int // ext -> count of binary blobs no rule claimed
+	Scanned   int            // blobs fed
 }
 
 func (r Result) Worst() (found bool, level rule.Level) {
@@ -49,7 +50,10 @@ func (e *Engine) Run() (Result, error) {
 		sweep(filepath.Join(os.TempDir(), "git-footprint"))
 	}
 	res := Result{Unclaimed: map[string]int{}}
-	err := e.src.Blobs(func(b rule.Blob) { e.feed(b, 0, &res) })
+	err := e.src.Blobs(func(b rule.Blob) {
+		res.Scanned++
+		e.feed(b, 0, &res)
+	})
 	for _, ru := range e.rules {
 		res.Findings = append(res.Findings, ru.Findings()...)
 	}

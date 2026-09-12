@@ -1,5 +1,5 @@
 // Package source yields the blobs git-footprint scans: a git repository's
-// history.
+// history, or a plain directory tree when there is no usable git.
 package source
 
 import (
@@ -13,30 +13,23 @@ import (
 )
 
 // Source is what the engine scans, plus the contributor footprint that goes at
-// the top of the report.
+// the top of the report (empty when there is no history).
 type Source interface {
 	engine.Source
 	Footprint() (identity.Footprint, error)
 	Root() string
 }
 
-// Open resolves path to the git repository it sits in.
+// Open picks a git-history source when path sits in a git repository that has
+// commits (and git is installed), and a directory-tree source otherwise.
 func Open(path string) (Source, error) {
 	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("%s is not a directory", path)
 	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return nil, fmt.Errorf("git was not found on PATH")
+	if _, err := exec.LookPath("git"); err == nil && gitcmd.IsRepo(path) {
+		if root, err := gitcmd.Root(path); err == nil && gitcmd.HasCommits(root) {
+			return &gitSource{root: root}, nil
+		}
 	}
-	if !gitcmd.IsRepo(path) {
-		return nil, fmt.Errorf("%s is not a git repository", path)
-	}
-	root, err := gitcmd.Root(path)
-	if err != nil {
-		return nil, err
-	}
-	if !gitcmd.HasCommits(root) {
-		return nil, fmt.Errorf("repository has no commits yet")
-	}
-	return &gitSource{root: root}, nil
+	return &treeSource{root: path}, nil
 }
