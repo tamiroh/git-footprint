@@ -12,8 +12,6 @@ import (
 	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/engine"
-	"github.com/tamiroh/git-footprint/internal/gitcmd"
-	"github.com/tamiroh/git-footprint/internal/identity"
 	"github.com/tamiroh/git-footprint/internal/report"
 	"github.com/tamiroh/git-footprint/internal/rule"
 	"github.com/tamiroh/git-footprint/internal/rules/archive"
@@ -23,6 +21,7 @@ import (
 	"github.com/tamiroh/git-footprint/internal/rules/office"
 	"github.com/tamiroh/git-footprint/internal/rules/pdf"
 	"github.com/tamiroh/git-footprint/internal/rules/video"
+	"github.com/tamiroh/git-footprint/internal/source"
 )
 
 const version = "0.1.1"
@@ -52,11 +51,6 @@ func run() int {
 		return 2
 	}
 
-	if _, err := exec.LookPath("git"); err != nil {
-		fmt.Fprintln(os.Stderr, "git was not found on PATH")
-		return 2
-	}
-
 	repoArg := "."
 	if flag.NArg() > 0 {
 		repoArg = flag.Arg(0)
@@ -67,21 +61,12 @@ func run() int {
 		return 2
 	}
 
-	if !gitcmd.IsRepo(repo) {
-		fmt.Fprintf(os.Stderr, "%s is not a git repository\n", repo)
-		return 2
-	}
-	root, err := gitcmd.Root(repo)
+	src, err := source.Open(repo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	if !gitcmd.HasCommits(root) {
-		fmt.Fprintln(os.Stderr, "repository has no commits yet")
-		return 2
-	}
-
-	fp, err := identity.Build(root)
+	fp, err := src.Footprint()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -90,7 +75,7 @@ func run() int {
 	tty := isTerminal(os.Stdout)
 	color := (tty || *forceColor) && !*noColor
 
-	eng := engine.New(root, []rule.Rule{
+	result, scanErr := engine.New(src, []rule.Rule{
 		image.New(),
 		video.New(),
 		pdf.New(),
@@ -98,11 +83,10 @@ func run() int {
 		font.New(),
 		dsstore.New(),
 		archive.New(),
-	}, color)
-	result, scanErr := eng.Run()
+	}, color).Run()
 
 	out, closePager := startPager(tty && !*noPager)
-	report.Render(out, fp, result, root, color)
+	report.Render(out, fp, result, src.Root(), color)
 	closePager()
 
 	if scanErr != nil {
