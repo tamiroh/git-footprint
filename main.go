@@ -86,7 +86,7 @@ func run() int {
 	}, color).Run()
 
 	out, closePager := startPager(tty && !*noPager)
-	report.Render(out, fp, result, src.Root(), color)
+	report.Render(out, fp, result, color)
 	closePager()
 
 	if scanErr != nil {

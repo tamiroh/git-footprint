@@ -111,28 +111,6 @@ func termWidth(s string) int {
 	return w
 }
 
-func headerBox(pt painter, title string, lines ...string) {
-	all := append([]string{title}, lines...)
-	inner := 0
-	for _, l := range all {
-		if n := termWidth(l); n > inner {
-			inner = n
-		}
-	}
-	rule := strings.Repeat("─", inner+2)
-	pt.put("╭"+rule+"╮\n", ansiDim)
-	for i, l := range all {
-		code := ""
-		if i == 0 {
-			code = ansiBold
-		}
-		pt.put("│ ", ansiDim)
-		pt.put(l, code)
-		pt.put(strings.Repeat(" ", inner-termWidth(l))+" │\n", ansiDim)
-	}
-	pt.put("╰"+rule+"╯\n\n", ansiDim)
-}
-
 // rank orders detectors; unknown ones sort last.
 func rank(detector string) int {
 	if r, ok := map[string]int{
@@ -148,7 +126,7 @@ func checkLabel(name string) string { // "image-location" -> "location"
 	return name[strings.LastIndexByte(name, '-')+1:]
 }
 
-func Render(w io.Writer, fp identity.Footprint, res engine.Result, repo string, color bool) {
+func Render(w io.Writer, fp identity.Footprint, res engine.Result, color bool) {
 	pt := painter{w: w, color: color}
 
 	// No identities means a plain directory was scanned, not git history: the
@@ -159,7 +137,7 @@ func Render(w io.Writer, fp identity.Footprint, res engine.Result, repo string, 
 		subtitle = plural(fp.TotalCommits, "$1 commit", "$1 commits") + " across " +
 			plural(len(fp.Identities), "$1 identity", "$1 identities")
 	}
-	headerBox(pt, "git-footprint", repo, subtitle)
+	pt.put(subtitle + "\n\n")
 
 	byWho := map[[2]string][]rule.Finding{}
 	for _, f := range res.Findings {
