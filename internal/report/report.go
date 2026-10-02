@@ -76,7 +76,7 @@ func plural(n int, one, many string) string {
 }
 
 func commitCount(id identity.Identity) string {
-	return fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
+	return fmt.Sprintf("authored %d · co-authored %d · committed %d", id.AuthorCommits, id.CoAuthorCommits, id.CommitterCommits)
 }
 
 func dateRange(id identity.Identity) string {
@@ -183,8 +183,30 @@ func Render(w io.Writer, fp identity.Footprint, res engine.Result, color bool) {
 		pt.put("\n")
 	}
 
+	if git {
+		sectionHead(pt, "commit message mentions")
+		if len(fp.Mentions) == 0 {
+			none(pt)
+		}
+		for _, m := range fp.Mentions {
+			pt.put("[WARN]  "+m.Commit+" · "+m.Location+"\n", ansiYellow)
+			value := m.Email
+			if m.Name != "" {
+				value = m.Name + " <" + m.Email + ">"
+			}
+			pt.put("        " + value + "\n\n")
+		}
+	}
+
 	sectionHead(pt, "summary")
 	summary(pt, res, git)
+	if git {
+		if len(fp.Mentions) == 0 {
+			recap(pt, markOK, "no identity or email detected in commit messages")
+		} else {
+			recap(pt, markWarn, plural(len(fp.Mentions), "$1 identity/email mention in commit messages", "$1 identity/email mentions in commit messages"))
+		}
+	}
 }
 
 func none(pt painter) { pt.put("(none)\n\n", ansiDim) }
