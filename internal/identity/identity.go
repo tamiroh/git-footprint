@@ -26,9 +26,7 @@ type Identity struct {
 	Email            string
 	AuthorCommits    int
 	CoAuthorCommits  int
-	SignedOffCommits int
 	CommitterCommits int
-	TrailerCommits   map[string]int // other identity trailers, keyed by lowercase trailer name
 	FirstDate        string
 	LastDate         string
 	Bot              bool
@@ -55,7 +53,12 @@ func collect(repo string) (Footprint, error) {
 	byKey := map[key]*Identity{}
 	var order []key
 
-	note := func(name, email, date string) *Identity {
+	const (
+		authored = iota
+		committed
+		coAuthored
+	)
+	note := func(name, email, date string, role int) {
 		email = strings.ToLower(email)
 		k := key{name, email}
 		id := byKey[k]
@@ -63,6 +66,14 @@ func collect(repo string) (Footprint, error) {
 			id = &Identity{Name: name, Email: email}
 			byKey[k] = id
 			order = append(order, k)
+		}
+		switch role {
+		case authored:
+			id.AuthorCommits++
+		case committed:
+			id.CommitterCommits++
+		case coAuthored:
+			id.CoAuthorCommits++
 		}
 		if len(date) == 10 { // "yyyy-mm-dd" from --date=short
 			if id.FirstDate == "" || date < id.FirstDate {
@@ -72,7 +83,6 @@ func collect(repo string) (Footprint, error) {
 				id.LastDate = date
 			}
 		}
-		return id
 	}
 
 	separators := gitcmd.Try(repo, "config", "trailer.separators")
@@ -93,34 +103,18 @@ func collect(repo string) (Footprint, error) {
 		}
 		out = strings.TrimLeft(rest[size:], "\n")
 		fp.TotalCommits++
-		note(f[0], f[1], f[2]).AuthorCommits++
-		note(f[3], f[4], f[5]).CommitterCommits++
-		type credit struct {
-			key
-			trailer string
-		}
-		seen := map[credit]bool{}
+		note(f[0], f[1], f[2], authored)
+		note(f[3], f[4], f[5], committed)
+		seen := map[key]bool{}
 		for _, line := range strings.Split(f[8], "\n") {
 			trailer, value, ok := strings.Cut(line, ":")
-			if !ok {
+			if !ok || !strings.EqualFold(trailer, "Co-Authored-by") {
 				continue
 			}
-			trailer = strings.ToLower(trailer)
-			name, email, ok := parseTrailerIdentity(value)
-			k := credit{key{name, email}, trailer}
+			name, email, ok := parseCoAuthor(value)
+			k := key{name, email}
 			if ok && !seen[k] {
-				id := note(name, email, f[2])
-				switch trailer {
-				case "co-authored-by":
-					id.CoAuthorCommits++
-				case "signed-off-by":
-					id.SignedOffCommits++
-				default:
-					if id.TrailerCommits == nil {
-						id.TrailerCommits = map[string]int{}
-					}
-					id.TrailerCommits[trailer]++
-				}
+				note(name, email, f[2], coAuthored)
 				seen[k] = true
 			}
 		}
@@ -135,9 +129,9 @@ func collect(repo string) (Footprint, error) {
 	return fp, nil
 }
 
-// parseTrailerIdentity accepts Git's Name <email> identity form without interpreting
+// parseCoAuthor accepts Git's Name <email> identity form without interpreting
 // names as RFC mail headers or requiring a public email domain.
-func parseTrailerIdentity(value string) (string, string, bool) {
+func parseCoAuthor(value string) (string, string, bool) {
 	value = strings.TrimSpace(value)
 	name, email, ok := strings.Cut(value, "<")
 	if !ok || !strings.HasSuffix(email, ">") {

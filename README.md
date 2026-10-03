@@ -23,8 +23,8 @@ git footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] 
 
 Today `git footprint` reports:
 
-- author/committer identities and `Name <email>` identities in commit trailers
-- email addresses mentioned in commit messages
+- author, co-author and committer identities
+- names and email addresses in commit trailers, and email addresses in message text
 - embedded metadata (location, creator, camera, software, creation date) of any
   committed image (JPEG, PNG, WebP, GIF, TIFF, camera RAW), video (MP4, MOV),
   PDF, Office document (`.docx`, `.xlsx`, `.pptx`) or font (`.ttf`, `.otf`,
