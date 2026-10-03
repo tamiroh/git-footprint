@@ -2,9 +2,7 @@
 package identity
 
 import (
-	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/gitcmd"
@@ -25,7 +23,6 @@ type Identity struct {
 	Name             string
 	Email            string
 	AuthorCommits    int
-	CoAuthorCommits  int
 	CommitterCommits int
 	FirstDate        string
 	LastDate         string
@@ -36,29 +33,22 @@ type Identity struct {
 type Footprint struct {
 	TotalCommits int
 	Identities   []Identity
-	Mentions     []Mention
 }
 
-func collect(repo string) (Footprint, error) {
-	fields := []string{"%an", "%ae", "%ad", "%cn", "%ce", "%cd", "%H", "%(trailers)", "%(trailers:only,unfold,key_value_separator=%x3A)", "%B"}
+func collect(repo string) ([]Identity, error) {
+	fields := []string{"%an", "%ae", "%ad", "%cn", "%ce", "%cd"}
 	// not --all: that would pull in refs/stash and refs/notes.
 	out, err := gitcmd.Run(repo, "log", "HEAD", "--branches", "--tags", "--remotes",
-		"--no-color", "--no-notes", "--no-show-signature", "--log-size", "--date=short",
-		"--format="+strings.Join(fields, "%x00"))
+		"--no-color", "--date=short", "--format="+strings.Join(fields, "%x00"))
 	if err != nil {
-		return Footprint{}, err
+		return nil, err
 	}
 
 	type key struct{ name, email string }
 	byKey := map[key]*Identity{}
 	var order []key
 
-	const (
-		authored = iota
-		committed
-		coAuthored
-	)
-	note := func(name, email, date string, role int) {
+	note := func(name, email, date string, author bool) {
 		email = strings.ToLower(email)
 		k := key{name, email}
 		id := byKey[k]
@@ -67,13 +57,10 @@ func collect(repo string) (Footprint, error) {
 			byKey[k] = id
 			order = append(order, k)
 		}
-		switch role {
-		case authored:
+		if author {
 			id.AuthorCommits++
-		case committed:
+		} else {
 			id.CommitterCommits++
-		case coAuthored:
-			id.CoAuthorCommits++
 		}
 		if len(date) == 10 { // "yyyy-mm-dd" from --date=short
 			if id.FirstDate == "" || date < id.FirstDate {
@@ -85,73 +72,28 @@ func collect(repo string) (Footprint, error) {
 		}
 	}
 
-	separators := gitcmd.Try(repo, "config", "trailer.separators")
-	if separators == "" {
-		separators = ":"
-	}
-	var fp Footprint
-	for out != "" {
-		// Length framing keeps arbitrary message bytes from splitting commits.
-		header, rest, ok := strings.Cut(out, "\n")
-		size, err := strconv.Atoi(strings.TrimPrefix(header, "log size "))
-		if !ok || !strings.HasPrefix(header, "log size ") || err != nil || size < 0 || size > len(rest) {
-			return Footprint{}, fmt.Errorf("invalid git log record size")
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Split(line, fieldSep)
+		if len(f) < 6 {
+			continue
 		}
-		f := strings.SplitN(rest[:size], fieldSep, len(fields))
-		if len(f) != len(fields) {
-			return Footprint{}, fmt.Errorf("incomplete git log record")
-		}
-		out = strings.TrimLeft(rest[size:], "\n")
-		fp.TotalCommits++
-		note(f[0], f[1], f[2], authored)
-		note(f[3], f[4], f[5], committed)
-		seen := map[key]bool{}
-		for _, line := range strings.Split(f[8], "\n") {
-			trailer, value, ok := strings.Cut(line, ":")
-			if !ok || !strings.EqualFold(trailer, "Co-Authored-by") {
-				continue
-			}
-			name, email, ok := parseCoAuthor(value)
-			k := key{name, email}
-			if ok && !seen[k] {
-				note(name, email, f[2], coAuthored)
-				seen[k] = true
-			}
-		}
-		fp.Mentions = append(fp.Mentions, messageMentions(f[6], f[9], f[7], f[8], separators)...)
+		note(f[0], f[1], f[2], true)
+		note(f[3], f[4], f[5], false)
 	}
 
 	ids := make([]Identity, 0, len(order))
 	for _, k := range order {
 		ids = append(ids, *byKey[k])
 	}
-	fp.Identities = ids
-	return fp, nil
-}
-
-// parseCoAuthor accepts Git's Name <email> identity form without interpreting
-// names as RFC mail headers or requiring a public email domain.
-func parseCoAuthor(value string) (string, string, bool) {
-	value = strings.TrimSpace(value)
-	name, email, ok := strings.Cut(value, "<")
-	if !ok || !strings.HasSuffix(email, ">") {
-		return "", "", false
-	}
-	name = strings.TrimSpace(name)
-	email = strings.ToLower(strings.TrimSpace(strings.TrimSuffix(email, ">")))
-	if name == "" || email == "" || strings.ContainsAny(name+email, "<>\x00\r\n") {
-		return "", "", false
-	}
-	return name, email, true
+	return ids, nil
 }
 
 func Build(repo string) (Footprint, error) {
-	fp, err := collect(repo)
+	ids, err := collect(repo)
 	if err != nil {
 		return Footprint{}, err
 	}
 
-	ids := fp.Identities
 	for i := range ids {
 		ids[i].Bot = looksBot(ids[i].Name, ids[i].Email)
 	}
@@ -174,7 +116,11 @@ func Build(repo string) (Footprint, error) {
 		return a.Email < b.Email
 	})
 
-	return fp, nil
+	commits := 0
+	for _, id := range ids {
+		commits += id.AuthorCommits
+	}
+	return Footprint{TotalCommits: commits, Identities: ids}, nil
 }
 
 // markSelf never links people who aren't you: it matches only against this

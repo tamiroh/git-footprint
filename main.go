@@ -95,9 +95,6 @@ func run() int {
 		return 2 // an incomplete scan can't answer --fail-on
 	}
 	found, level := result.Worst()
-	if len(fp.Mentions) > 0 {
-		found, level = true, rule.Warn
-	}
 	switch strings.ToLower(*failOn) {
 	case "warn":
 		if level >= rule.Warn {
@@ -154,12 +151,12 @@ Check what your git history reveals about you before you make a repository
 public. Per contributor: every identity in the history, the embedded metadata
 (location, creator, camera, software, creation date) of any image, video, PDF,
 Office document or font they committed, and the file names a committed .DS_Store
-leaks. Also reports identities and email addresses mentioned in commit messages.
+leaks.
 
 REPO defaults to the current directory.
 
 --fail-on LEVEL exits 1 when findings reach LEVEL (none, info, warn); "warn"
 covers any finding that reveals a location or creator, or a committed
-.DS_Store, as well as identities/emails in commit messages. Setup errors always exit 2.
+.DS_Store. Setup errors always exit 2.
 `)
 }
