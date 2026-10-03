@@ -84,10 +84,6 @@ func messageMentions(commit, message, rawTrailers, trailers, separators string) 
 		}
 		location := "trailer " + keys[strings.ToLower(key)]
 		if name, email, ok := parseCoAuthor(value); ok {
-			// Co-authors are already listed as contributors, like authors and committers.
-			if strings.EqualFold(key, "Co-Authored-by") {
-				continue
-			}
 			add(location, name, email)
 		} else {
 			scan(location, value)
