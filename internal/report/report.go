@@ -76,7 +76,19 @@ func plural(n int, one, many string) string {
 }
 
 func commitCount(id identity.Identity) string {
-	return fmt.Sprintf("authored %d · co-authored %d · committed %d", id.AuthorCommits, id.CoAuthorCommits, id.CommitterCommits)
+	counts := fmt.Sprintf("authored %d · co-authored %d · committed %d", id.AuthorCommits, id.CoAuthorCommits, id.CommitterCommits)
+	if id.SignedOffCommits > 0 {
+		counts += fmt.Sprintf(" · signed-off %d", id.SignedOffCommits)
+	}
+	var trailers []string
+	for trailer := range id.TrailerCommits {
+		trailers = append(trailers, trailer)
+	}
+	sort.Strings(trailers)
+	for _, trailer := range trailers {
+		counts += fmt.Sprintf(" · %s %d", trailer, id.TrailerCommits[trailer])
+	}
+	return counts
 }
 
 func dateRange(id identity.Identity) string {
@@ -190,11 +202,7 @@ func Render(w io.Writer, fp identity.Footprint, res engine.Result, color bool) {
 		}
 		for _, m := range fp.Mentions {
 			pt.put("[WARN]  "+m.Commit+" · "+m.Location+"\n", ansiYellow)
-			value := m.Email
-			if m.Name != "" {
-				value = m.Name + " <" + m.Email + ">"
-			}
-			pt.put("        " + value + "\n\n")
+			pt.put("        " + m.Email + "\n\n")
 		}
 	}
 

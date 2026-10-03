@@ -7,11 +7,9 @@ import (
 )
 
 // Mention records evidence in a commit message, not an authorship claim.
-// Name is set only for a trailer whose value is a Name <email> identity.
 type Mention struct {
 	Commit   string
 	Location string
-	Name     string
 	Email    string
 }
 
@@ -22,8 +20,8 @@ var messageEmail = regexp.MustCompile(`[a-zA-Z0-9_][a-zA-Z0-9_.%+'-]*@[a-zA-Z0-9
 func messageMentions(commit, message, rawTrailers, trailers, separators string) []Mention {
 	var mentions []Mention
 	seen := map[Mention]bool{}
-	add := func(location, name, email string) {
-		m := Mention{Commit: commit, Location: location, Name: name, Email: strings.ToLower(email)}
+	add := func(location, email string) {
+		m := Mention{Commit: commit, Location: location, Email: strings.ToLower(email)}
 		if !seen[m] {
 			mentions = append(mentions, m)
 			seen[m] = true
@@ -33,7 +31,7 @@ func messageMentions(commit, message, rawTrailers, trailers, separators string) 
 		for _, email := range messageEmail.FindAllString(value, -1) {
 			local, _, _ := strings.Cut(email, "@")
 			if local != "" && !strings.HasSuffix(local, ".") && !strings.Contains(local, "..") {
-				add(location, "", email)
+				add(location, email)
 			}
 		}
 	}
@@ -83,15 +81,12 @@ func messageMentions(commit, message, rawTrailers, trailers, separators string) 
 			continue
 		}
 		location := "trailer " + keys[strings.ToLower(key)]
-		if name, email, ok := parseCoAuthor(value); ok {
-			// Co-authors are already listed as contributors, like authors and committers.
-			if strings.EqualFold(key, "Co-Authored-by") {
-				continue
-			}
-			add(location, name, email)
-		} else {
-			scan(location, value)
+		// Structured trailer identities are collected in the contributor list,
+		// regardless of the trailer key, including repository-specific roles.
+		if _, _, ok := parseTrailerIdentity(value); ok {
+			continue
 		}
+		scan(location, value)
 	}
 	return mentions
 }
