@@ -19,9 +19,9 @@ git footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] 
 
 `REPO` defaults to the current directory.
 
-## Roadmap
+## Features
 
-Today `git footprint` reports, per contributor:
+`git footprint` reports, per contributor:
 
 - every author/committer identity in the history
 - embedded metadata (location, creator, camera, software, creation date) of
@@ -32,7 +32,7 @@ Today `git footprint` reports, per contributor:
   (including inside ZIP, tar and tar.gz archives)
 - owner names stored in tar and tar.gz archive headers
 
-Planned:
+## Roadmap
 
 - real names and internal hostnames leaked in file paths and configs
 - content PII (addresses, phone numbers, national ID numbers)
