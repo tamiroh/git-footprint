@@ -1,6 +1,6 @@
 # git-footprint
 
-Check what your git history reveals about you before you make a repository public.
+Check your repository for identifying information in commit identities and file metadata.
 
 ## Install
 
@@ -24,12 +24,13 @@ git footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] 
 Today `git footprint` reports, per contributor:
 
 - every author/committer identity in the history
-- embedded metadata (location, creator, camera, software, creation date) of any
-  committed image (JPEG, PNG, WebP, GIF, TIFF, camera RAW), video (MP4, MOV),
-  PDF, Office document (`.docx`, `.xlsx`, `.pptx`) or font (`.ttf`, `.otf`,
-  `.ttc`, `.woff`), and of images, PDFs, Office documents and `.DS_Store` files
-  inside a committed zip
+- embedded metadata (location, creator, camera, software, creation date) of
+  supported committed images (JPEG, PNG, WebP, GIF, TIFF, camera RAW), videos (MP4, MOV),
+  PDFs, Office documents (`.docx`, `.xlsx`, `.pptx`) and fonts (`.ttf`, `.otf`,
+  `.ttc`, `.woff`), including those inside ZIP, tar and tar.gz archives
 - the file/folder names a committed `.DS_Store` leaks
+  (including inside ZIP, tar and tar.gz archives)
+- owner names stored in tar and tar.gz archive headers
 
 Planned:
 
