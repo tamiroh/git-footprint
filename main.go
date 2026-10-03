@@ -24,7 +24,7 @@ import (
 	"github.com/tamiroh/git-footprint/internal/source"
 )
 
-const version = "0.1.1"
+const version = "0.1.2"
 
 func main() {
 	os.Exit(run())
