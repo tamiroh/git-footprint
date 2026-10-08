@@ -1,5 +1,3 @@
-// Command git-footprint reports what a repository's history reveals about its
-// contributors.
 package main
 
 import (
