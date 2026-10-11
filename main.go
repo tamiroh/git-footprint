@@ -150,15 +150,17 @@ func usage() {
 	fmt.Fprint(os.Stderr, `git footprint [--no-color] [--color] [--no-pager] [--allow-identity 'Name <email>']... [--fail-on LEVEL] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
-public. Per contributor: every identity in the history, the embedded metadata
+public. Per contributor: every identity in the history (authors, committers,
+taggers and people named in commit trailers), the embedded metadata
 (location, creator, camera, software, creation date) of any image, video, PDF,
 Office document or font they committed, and the file names a committed .DS_Store
 leaks.
 
 REPO defaults to the current directory.
 
---allow-identity 'Name <email>' may be repeated. When specified, every author or
-committer identity outside the list is a warning, including you and bots.
+--allow-identity 'Name <email>' may be repeated. When specified, every author,
+committer, tagger or trailer identity outside the list is a warning, including
+you and bots.
 Names match exactly; email matching ignores case. Without this option,
 identities are only listed. File metadata warnings are unaffected.
 

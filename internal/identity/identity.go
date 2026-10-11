@@ -11,6 +11,8 @@ import (
 // git forbids NUL in names/emails/dates, so a hostile user.name can't shift fields.
 const fieldSep = "\x00"
 
+const trailerSep = "\x1f"
+
 type Self int
 
 const (
@@ -24,6 +26,8 @@ type Identity struct {
 	Email            string
 	AuthorCommits    int
 	CommitterCommits int
+	Tags             int            // annotated tags it signed as tagger
+	Trailers         map[string]int // trailer key -> commits naming it there
 	FirstDate        string
 	LastDate         string
 	Bot              bool
@@ -35,8 +39,62 @@ type Footprint struct {
 	Identities   []Identity
 }
 
+type role int
+
+const (
+	asAuthor role = iota
+	asCommitter
+	asTagger
+)
+
+type collector struct {
+	byKey map[[2]string]*Identity
+	order [][2]string
+}
+
+func (c *collector) get(name, email, date string) *Identity {
+	email = strings.ToLower(email)
+	k := [2]string{name, email}
+	id := c.byKey[k]
+	if id == nil {
+		id = &Identity{Name: name, Email: email}
+		c.byKey[k] = id
+		c.order = append(c.order, k)
+	}
+	if len(date) == 10 { // "yyyy-mm-dd" from --date=short
+		if id.FirstDate == "" || date < id.FirstDate {
+			id.FirstDate = date
+		}
+		if date > id.LastDate {
+			id.LastDate = date
+		}
+	}
+	return id
+}
+
+func (c *collector) note(name, email, date string, as role) {
+	id := c.get(name, email, date)
+	switch as {
+	case asAuthor:
+		id.AuthorCommits++
+	case asCommitter:
+		id.CommitterCommits++
+	case asTagger:
+		id.Tags++
+	}
+}
+
+func (c *collector) trailer(key, name, email, date string) {
+	id := c.get(name, email, date)
+	if id.Trailers == nil {
+		id.Trailers = map[string]int{}
+	}
+	id.Trailers[key]++
+}
+
 func collect(repo string) ([]Identity, error) {
-	fields := []string{"%an", "%ae", "%ad", "%cn", "%ce", "%cd"}
+	fields := []string{"%an", "%ae", "%ad", "%cn", "%ce", "%cd",
+		"%(trailers:only=true,unfold=true,separator=%x1f)"}
 	// not --all: that would pull in refs/stash and refs/notes.
 	out, err := gitcmd.Run(repo, "log", "HEAD", "--branches", "--tags", "--remotes",
 		"--no-color", "--date=short", "--format="+strings.Join(fields, "%x00"))
@@ -44,48 +102,63 @@ func collect(repo string) ([]Identity, error) {
 		return nil, err
 	}
 
-	type key struct{ name, email string }
-	byKey := map[key]*Identity{}
-	var order []key
-
-	note := func(name, email, date string, author bool) {
-		email = strings.ToLower(email)
-		k := key{name, email}
-		id := byKey[k]
-		if id == nil {
-			id = &Identity{Name: name, Email: email}
-			byKey[k] = id
-			order = append(order, k)
-		}
-		if author {
-			id.AuthorCommits++
-		} else {
-			id.CommitterCommits++
-		}
-		if len(date) == 10 { // "yyyy-mm-dd" from --date=short
-			if id.FirstDate == "" || date < id.FirstDate {
-				id.FirstDate = date
-			}
-			if date > id.LastDate {
-				id.LastDate = date
-			}
-		}
-	}
-
+	c := &collector{byKey: map[[2]string]*Identity{}}
 	for _, line := range strings.Split(out, "\n") {
-		f := strings.Split(line, fieldSep)
-		if len(f) < 6 {
+		f := strings.SplitN(line, fieldSep, len(fields))
+		if len(f) < len(fields) {
 			continue
 		}
-		note(f[0], f[1], f[2], true)
-		note(f[3], f[4], f[5], false)
+		c.note(f[0], f[1], f[2], asAuthor)
+		c.note(f[3], f[4], f[5], asCommitter)
+		for _, t := range strings.Split(f[6], trailerSep) {
+			if key, name, email, ok := parseTrailer(t); ok {
+				c.trailer(key, name, email, f[2])
+			}
+		}
 	}
 
-	ids := make([]Identity, 0, len(order))
-	for _, k := range order {
-		ids = append(ids, *byKey[k])
+	// Lightweight tags have no tagger and come back with empty fields.
+	tags, err := gitcmd.Run(repo, "for-each-ref", "refs/tags",
+		"--format=%(taggername)%00%(taggeremail)%00%(taggerdate:short)")
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(tags, "\n") {
+		f := strings.Split(line, fieldSep)
+		if len(f) < 3 || f[1] == "" {
+			continue
+		}
+		email := strings.TrimSuffix(strings.TrimPrefix(f[1], "<"), ">")
+		c.note(f[0], email, f[2], asTagger)
+	}
+
+	ids := make([]Identity, 0, len(c.order))
+	for _, k := range c.order {
+		ids = append(ids, *c.byKey[k])
 	}
 	return ids, nil
+}
+
+// parseTrailer accepts any trailer whose value is "Name <email>", whatever its
+// key: Co-authored-by, Signed-off-by, Reviewed-by and the rest all name people.
+func parseTrailer(line string) (key, name, email string, ok bool) {
+	key, value, found := strings.Cut(line, ":")
+	if !found {
+		return "", "", "", false
+	}
+	key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+	i := strings.LastIndexByte(value, '<')
+	if key == "" || i < 1 || !strings.HasSuffix(value, ">") {
+		return "", "", "", false
+	}
+	name, email = strings.TrimSpace(value[:i]), value[i+1:len(value)-1]
+	// keeps "Link: see <https://...>" from reading as a person
+	if name == "" || !strings.Contains(email, "@") || strings.Contains(email, "://") || strings.ContainsAny(email, " <>") {
+		return "", "", "", false
+	}
+	// git matches trailer keys case-insensitively
+	key = strings.ToUpper(key[:1]) + strings.ToLower(key[1:])
+	return key, name, email, true
 }
 
 func Build(repo string) (Footprint, error) {

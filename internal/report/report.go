@@ -76,7 +76,19 @@ func plural(n int, one, many string) string {
 }
 
 func commitCount(id identity.Identity) string {
-	return fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
+	s := fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
+	if id.Tags > 0 {
+		s += fmt.Sprintf(" · tagged %d", id.Tags)
+	}
+	keys := make([]string, 0, len(id.Trailers))
+	for k := range id.Trailers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		s += fmt.Sprintf(" · %s %d", k, id.Trailers[k])
+	}
+	return s
 }
 
 func dateRange(id identity.Identity) string {

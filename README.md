@@ -23,7 +23,8 @@ git footprint [--no-color] [--color] [--no-pager] [--allow-identity 'Name <email
 
 `git footprint` reports, per contributor:
 
-- every author/committer identity in the history
+- every author/committer identity in the history, plus annotated-tag taggers
+  and people named in commit trailers (`Co-authored-by`, `Signed-off-by`, ...)
 - embedded metadata (location, creator, camera, software, creation date) of
   supported committed images (JPEG, PNG, WebP, GIF, TIFF, camera RAW), videos (MP4, MOV),
   PDFs, Office documents (`.docx`, `.xlsx`, `.pptx`) and fonts (`.ttf`, `.otf`,
