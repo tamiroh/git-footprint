@@ -14,7 +14,7 @@ so git picks it up as a subcommand.
 ## Usage
 
 ```sh
-git footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] [REPO]
+git footprint [--no-color] [--color] [--no-pager] [--allow-identity 'Name <email>']... [--fail-on LEVEL] [--version] [REPO]
 ```
 
 `REPO` defaults to the current directory.

@@ -114,6 +114,7 @@ func termWidth(s string) int {
 // rank orders detectors; unknown ones sort last.
 func rank(detector string) int {
 	if r, ok := map[string]int{
+		"identity":       -1,
 		"image-metadata": 0, "video-metadata": 1, "pdf-metadata": 2,
 		"office-metadata": 3, "font-metadata": 4, "ds-store": 5, "archive": 6,
 	}[detector]; ok {
@@ -252,6 +253,10 @@ func ofDetector(in []rule.Finding, names ...string) []rule.Finding {
 }
 
 func findingBlock(pt painter, f rule.Finding) {
+	if f.Detector == "identity" {
+		pt.put("    [WARN]  identity is not in the allow list\n", ansiYellow)
+		return
+	}
 	label, labelCode, lineCode := "[INFO]", ansiDim, ""
 	if f.Level() == rule.Warn {
 		label, labelCode, lineCode = "[WARN]", ansiYellow, ansiYellow
@@ -291,6 +296,9 @@ func recap(pt painter, m mark, text string) {
 }
 
 func summary(pt painter, res engine.Result, git bool) {
+	if ids := ofDetector(res.Findings, "identity"); len(ids) > 0 {
+		recap(pt, markWarn, plural(len(ids), "$1 identity is outside the allow list", "$1 identities are outside the allow list"))
+	}
 	// "committed" only fits git history; a bare directory scan just has files.
 	adj := ""
 	if git {

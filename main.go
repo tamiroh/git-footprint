@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/engine"
+	"github.com/tamiroh/git-footprint/internal/identity"
 	"github.com/tamiroh/git-footprint/internal/report"
 	"github.com/tamiroh/git-footprint/internal/rule"
 	"github.com/tamiroh/git-footprint/internal/rules/archive"
@@ -29,6 +30,8 @@ func main() {
 }
 
 func run() int {
+	var allowed identity.AllowList
+	flag.Var(&allowed, "allow-identity", "allow Name <email>; repeat for each identity (warn on all others)")
 	noColor := flag.Bool("no-color", false, "never colourise output")
 	forceColor := flag.Bool("color", false, "colourise output even when not a terminal")
 	noPager := flag.Bool("no-pager", false, "do not page output through $PAGER")
@@ -82,6 +85,7 @@ func run() int {
 		dsstore.New(),
 		archive.New(),
 	}, color).Run()
+	result.Findings = append(result.Findings, allowed.Findings(fp)...)
 
 	out, closePager := startPager(tty && !*noPager)
 	report.Render(out, fp, result, color)
@@ -143,7 +147,7 @@ func startPager(enabled bool) (io.Writer, func()) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `git footprint [--no-color] [--color] [--no-pager] [--fail-on LEVEL] [--version] [REPO]
+	fmt.Fprint(os.Stderr, `git footprint [--no-color] [--color] [--no-pager] [--allow-identity 'Name <email>']... [--fail-on LEVEL] [--version] [REPO]
 
 Check what your git history reveals about you before you make a repository
 public. Per contributor: every identity in the history, the embedded metadata
@@ -153,8 +157,13 @@ leaks.
 
 REPO defaults to the current directory.
 
+--allow-identity 'Name <email>' may be repeated. When specified, every author or
+committer identity outside the list is a warning, including you and bots.
+Names match exactly; email matching ignores case. Without this option,
+identities are only listed. File metadata warnings are unaffected.
+
 --fail-on LEVEL exits 1 when findings reach LEVEL (none, info, warn); "warn"
 covers any finding that reveals a location or creator, or a committed
-.DS_Store. Setup errors always exit 2.
+.DS_Store, or an identity outside an explicit allow list. Setup errors always exit 2.
 `)
 }
