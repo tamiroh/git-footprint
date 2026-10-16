@@ -231,5 +231,6 @@ func markSelf(ids []Identity, repo string) {
 func looksBot(name, email string) bool {
 	return strings.HasSuffix(name, "[bot]") ||
 		name == "web-flow" ||
-		email == "noreply@github.com"
+		email == "noreply@github.com" ||
+		email == "noreply@anthropic.com"
 }
