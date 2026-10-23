@@ -68,14 +68,14 @@ func CatFileBatch(repo string, shas []string, fn func(sha string, content []byte
 	}
 
 	go func() {
-		defer stdin.Close()
+		defer func() { _ = stdin.Close() }()
 		w := bufio.NewWriter(stdin)
 		for _, s := range shas {
 			if _, err := fmt.Fprintln(w, s); err != nil {
 				return
 			}
 		}
-		w.Flush()
+		_ = w.Flush()
 	}()
 
 	const maxBlob = 64 << 20
@@ -103,9 +103,9 @@ func CatFileBatch(repo string, shas []string, fn func(sha string, content []byte
 		if _, err := io.ReadFull(br, buf); err != nil {
 			break
 		}
-		br.ReadByte()
+		_, _ = br.ReadByte()
 		fn(cols[0], buf)
 	}
-	io.Copy(io.Discard, br) // drain so git and the writer goroutine can exit
+	_, _ = io.Copy(io.Discard, br) // drain so git and the writer goroutine can exit
 	return cmd.Wait()
 }

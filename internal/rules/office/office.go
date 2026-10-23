@@ -127,7 +127,7 @@ func unmarshalEntry(f *zip.File, v any) bool {
 	if err != nil {
 		return false
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	data, err := io.ReadAll(io.LimitReader(rc, 1<<20))
 	if err != nil {
 		return false
@@ -176,7 +176,7 @@ func entryAuthors(f *zip.File) []string {
 	if err != nil {
 		return nil
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	dec := xml.NewDecoder(io.LimitReader(rc, 8<<20))
 	seen := map[string]bool{}

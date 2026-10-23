@@ -47,9 +47,9 @@ func (pt painter) write(text string, codes ...string) {
 		}
 	}
 	if pt.color && len(active) > 0 {
-		fmt.Fprint(pt.w, strings.Join(active, "")+text+ansiReset)
+		_, _ = fmt.Fprint(pt.w, strings.Join(active, "")+text+ansiReset)
 	} else {
-		fmt.Fprint(pt.w, text)
+		_, _ = fmt.Fprint(pt.w, text)
 	}
 }
 
@@ -422,7 +422,7 @@ func looksExt(e string) bool {
 		return false
 	}
 	for _, r := range e[1:] {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
 			return false
 		}
 	}

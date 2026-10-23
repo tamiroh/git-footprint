@@ -129,9 +129,9 @@ func (e *Engine) extract(b rule.Blob) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
-	if _, err := f.Write(b.Content); err != nil {
-		os.Remove(f.Name())
+	_, werr := f.Write(b.Content)
+	if cerr := f.Close(); werr != nil || cerr != nil {
+		_ = os.Remove(f.Name())
 		return ""
 	}
 	return f.Name()
@@ -160,7 +160,7 @@ func sweep(dir string) {
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > tempTTL {
-			os.Remove(filepath.Join(dir, e.Name()))
+			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
 }

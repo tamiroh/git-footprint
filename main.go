@@ -141,8 +141,8 @@ func startPager(enabled bool) (io.Writer, func()) {
 		return os.Stdout, func() {}
 	}
 	return w, func() {
-		w.Close()
-		cmd.Wait()
+		_ = w.Close()
+		_ = cmd.Wait()
 	}
 }
 
