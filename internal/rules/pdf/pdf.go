@@ -121,7 +121,7 @@ func read(blob []byte) (d data) {
 
 		for i := 1; i <= r.NumPage() && i <= 5000; i++ {
 			annots := r.Page(i).V.Key("Annots")
-			for j := 0; j < annots.Len(); j++ {
+			for j := range annots.Len() {
 				addAnnotator(annots.Index(j).Key("T").Text())
 			}
 		}

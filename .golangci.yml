@@ -3,10 +3,24 @@ version: "2"
 linters:
   default: standard
   enable:
+    - dupword
+    - durationcheck
     - errorlint
+    - exhaustive
+    - forcetypeassert
     - gocritic
+    - intrange
+    - makezero
+    - mirror
     - misspell
+    - modernize
+    - nolintlint
+    - perfsprint
+    - predeclared
     - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
 
 formatters:
   enable:

@@ -103,14 +103,14 @@ func collect(repo string) ([]Identity, error) {
 	}
 
 	c := &collector{byKey: map[[2]string]*Identity{}}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.SplitN(line, fieldSep, len(fields))
 		if len(f) < len(fields) {
 			continue
 		}
 		c.note(f[0], f[1], f[2], asAuthor)
 		c.note(f[3], f[4], f[5], asCommitter)
-		for _, t := range strings.Split(f[6], trailerSep) {
+		for t := range strings.SplitSeq(f[6], trailerSep) {
 			if key, name, email, ok := parseTrailer(t); ok {
 				c.trailer(key, name, email, f[2])
 			}
@@ -123,7 +123,7 @@ func collect(repo string) ([]Identity, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, line := range strings.Split(tags, "\n") {
+	for line := range strings.SplitSeq(tags, "\n") {
 		f := strings.Split(line, fieldSep)
 		if len(f) < 3 || f[1] == "" {
 			continue

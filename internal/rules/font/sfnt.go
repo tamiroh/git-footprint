@@ -96,7 +96,7 @@ func readNames(nt []byte) (d data) {
 	strBase := int(be16(nt[4:]))
 
 	kept := map[int]int{} // nameID -> platformID of the record we took
-	for i := 0; i < count; i++ {
+	for i := range count {
 		r := 6 + i*12
 		if r+12 > len(nt) {
 			break

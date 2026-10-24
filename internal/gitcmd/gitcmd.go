@@ -39,13 +39,13 @@ func Root(path string) (string, error) {
 func HeadBlobs(repo string) map[string]string {
 	out, _ := Run(repo, "ls-tree", "-r", "-z", "HEAD")
 	m := map[string]string{}
-	for _, e := range strings.Split(out, "\x00") {
-		tab := strings.IndexByte(e, '\t')
-		if tab < 0 {
+	for e := range strings.SplitSeq(out, "\x00") {
+		before, after, ok := strings.Cut(e, "\t")
+		if !ok {
 			continue
 		}
-		if f := strings.Fields(e[:tab]); len(f) >= 3 {
-			m[e[tab+1:]] = f[2]
+		if f := strings.Fields(before); len(f) >= 3 {
+			m[after] = f[2]
 		}
 	}
 	return m

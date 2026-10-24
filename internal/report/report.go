@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/engine"
@@ -72,13 +73,14 @@ func plural(n int, one, many string) string {
 	if n == 1 {
 		form = one
 	}
-	return strings.ReplaceAll(form, "$1", fmt.Sprint(n))
+	return strings.ReplaceAll(form, "$1", strconv.Itoa(n))
 }
 
 func commitCount(id identity.Identity) string {
-	s := fmt.Sprintf("authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
+	var b strings.Builder
+	fmt.Fprintf(&b, "authored %d · committed %d", id.AuthorCommits, id.CommitterCommits)
 	if id.Tags > 0 {
-		s += fmt.Sprintf(" · tagged %d", id.Tags)
+		fmt.Fprintf(&b, " · tagged %d", id.Tags)
 	}
 	keys := make([]string, 0, len(id.Trailers))
 	for k := range id.Trailers {
@@ -86,9 +88,9 @@ func commitCount(id identity.Identity) string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		s += fmt.Sprintf(" · %s %d", k, id.Trailers[k])
+		fmt.Fprintf(&b, " · %s %d", k, id.Trailers[k])
 	}
-	return s
+	return b.String()
 }
 
 func dateRange(id identity.Identity) string {
@@ -219,6 +221,7 @@ func identityBlock(pt painter, id identity.Identity, byWho map[[2]string][]rule.
 		pt.put("  (you)", ansiBold, ansiGreen)
 	case identity.MaybeSelf:
 		pt.put("  (maybe you)", ansiDim)
+	case identity.NotSelf:
 	}
 	pt.put("\n")
 
@@ -278,10 +281,7 @@ func findingBlock(pt painter, f rule.Finding) {
 
 	for _, c := range f.Checks {
 		name := checkLabel(c.Name)
-		gap := 13 - len(name)
-		if gap < 1 {
-			gap = 1
-		}
+		gap := max(13-len(name), 1)
 		pt.put("        "+name+strings.Repeat(" ", gap), ansiDim)
 		pt.put(c.Value + "\n")
 	}
@@ -296,8 +296,10 @@ const (
 )
 
 func recap(pt painter, m mark, text string) {
-	gutter, code := "        ", ansiGreen
+	var gutter, code string
 	switch m {
+	case markOK:
+		gutter, code = "        ", ansiGreen
 	case markInfo:
 		gutter, code = "[INFO]  ", ansiDim
 	case markWarn:

@@ -38,7 +38,7 @@ func parse(b []byte) (out dsData) {
 		return
 	}
 	addr := make([]uint32, 0, nBlocks)
-	for i := 0; i < nBlocks; i++ {
+	for range nBlocks {
 		if p+4 > len(b) {
 			return
 		}
@@ -53,7 +53,7 @@ func parse(b []byte) (out dsData) {
 	nDir := int(be.Uint32(b[p:]))
 	p += 4
 	dsdb := -1
-	for i := 0; i < nDir; i++ {
+	for range nDir {
 		if p+1 > len(b) {
 			return
 		}
@@ -160,7 +160,7 @@ func parse(b []byte) (out dsData) {
 			return true
 		}
 
-		for i := 0; i < count; i++ {
+		for range count {
 			if internal {
 				if pos+4 > len(d) {
 					return

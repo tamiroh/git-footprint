@@ -41,7 +41,7 @@ func (g *gitSource) Blobs(yield func(rule.Blob)) error {
 	bySha := map[string]ref{}
 	var shas []string
 	var by rule.Author
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		switch {
 		case strings.HasPrefix(line, logRec):
 			if f := strings.Split(line[len(logRec):], fieldSep); len(f) >= 2 {

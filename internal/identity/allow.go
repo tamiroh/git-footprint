@@ -1,7 +1,7 @@
 package identity
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/rule"
@@ -25,11 +25,11 @@ func (a *AllowList) Set(value string) error {
 	value = strings.TrimSpace(value)
 	i := strings.LastIndexByte(value, '<')
 	if i < 1 || !strings.HasSuffix(value, ">") {
-		return fmt.Errorf("want Name <email>")
+		return errors.New("want Name <email>")
 	}
 	name, email := strings.TrimSpace(value[:i]), value[i+1:len(value)-1]
 	if name == "" || email == "" || strings.ContainsAny(name+email, "<>\r\n\x00") || strings.TrimSpace(email) != email {
-		return fmt.Errorf("want Name <email>")
+		return errors.New("want Name <email>")
 	}
 	a.entries = append(a.entries, rule.Author{Name: name, Email: strings.ToLower(email)})
 	return nil
