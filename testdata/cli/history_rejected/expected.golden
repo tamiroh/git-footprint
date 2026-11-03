@@ -1,0 +1,35 @@
+exit: 1
+stdout:
+2 commits across 3 identities
+
+YOUR IDENTITIES
+───────────────
+
+● Fixture Author <author@example.com>  (you)
+    authored 1 · committed 2 · tagged 1  ·  2020-01-02
+    [WARN]  document.docx
+        author       Fixture Creator
+        application  Fixture Writer 1.0
+
+OTHER CONTRIBUTORS
+──────────────────
+
+● Fixture Contributor <contributor@example.com>
+    authored 1 · committed 0  ·  2020-01-02
+
+● Fixture Reviewer <reviewer@example.com>
+    authored 0 · committed 0 · Co-authored-by 1  ·  2020-01-02
+
+NOT TIED TO A LISTED IDENTITY
+─────────────────────────────
+
+(none)
+
+SUMMARY
+───────
+
+[WARN]  1 file carries embedded metadata (1 reveals a location or creator)
+        no committed .DS_Store
+        no committed archive names its owner
+        every committed file was read
+stderr:

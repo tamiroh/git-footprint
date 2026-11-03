@@ -1,0 +1,30 @@
+exit: 1
+stdout:
+1 commit across 1 identity
+
+YOUR IDENTITIES
+───────────────
+
+● Fixture Author <author@example.com>  (you)
+    authored 1 · committed 1  ·  2020-01-02
+    [WARN]  identity is not in the allow list
+
+OTHER CONTRIBUTORS
+──────────────────
+
+(none)
+
+NOT TIED TO A LISTED IDENTITY
+─────────────────────────────
+
+(none)
+
+SUMMARY
+───────
+
+[WARN]  1 identity is outside the allow list
+        no committed file carries embedded metadata
+        no committed .DS_Store
+        no committed archive names its owner
+        every committed file was read
+stderr:

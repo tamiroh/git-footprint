@@ -1,0 +1,4 @@
+exit: 2
+stdout:
+stderr:
+invalid --fail-on "invalid": want none, info or warn

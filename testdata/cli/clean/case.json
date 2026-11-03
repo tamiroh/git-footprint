@@ -1,0 +1,28 @@
+{
+  "args": [
+    "--fail-on",
+    "info"
+  ],
+  "exit": 0,
+  "steps": [
+    {
+      "write": {
+        "path": "README.md",
+        "content": "Synthetic CLI test repository.\n"
+      }
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-m",
+        "Add synthetic files"
+      ]
+    }
+  ]
+}

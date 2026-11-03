@@ -1,0 +1,30 @@
+exit: 1
+stdout:
+1 commit across 1 identity
+
+YOUR IDENTITIES
+───────────────
+
+● Fixture Author <author@example.com>  (you)
+    authored 1 · committed 1  ·  2020-01-02
+    [INFO]  document.docx
+        application  Fixture Writer 1.0
+
+OTHER CONTRIBUTORS
+──────────────────
+
+(none)
+
+NOT TIED TO A LISTED IDENTITY
+─────────────────────────────
+
+(none)
+
+SUMMARY
+───────
+
+[INFO]  1 file carries embedded metadata
+        no committed .DS_Store
+        no committed archive names its owner
+        every committed file was read
+stderr:

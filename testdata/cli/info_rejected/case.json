@@ -1,0 +1,38 @@
+{
+  "args": [
+    "--fail-on",
+    "info"
+  ],
+  "exit": 1,
+  "steps": [
+    {
+      "write": {
+        "path": "README.md",
+        "content": "Synthetic CLI test repository.\n"
+      }
+    },
+    {
+      "zip": {
+        "path": "document.docx",
+        "entries": {
+          "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>",
+          "word/document.xml": "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body/></w:document>",
+          "docProps/app.xml": "<Properties><Application>Fixture Writer</Application><AppVersion>1.0</AppVersion></Properties>"
+        }
+      }
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-m",
+        "Add synthetic files"
+      ]
+    }
+  ]
+}
