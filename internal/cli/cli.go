@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -37,7 +38,7 @@ func Run(args []string) int {
 	showVersion := flags.Bool("version", false, "print version and exit")
 	flags.Usage = usage
 	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
+		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return 2
