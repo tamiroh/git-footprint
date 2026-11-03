@@ -1,8 +1,5 @@
 {
-  "args": [
-    "--fail-on",
-    "info"
-  ],
+  "args": ["--fail-on", "info"],
   "exit": 1,
   "steps": [
     {
@@ -21,18 +18,7 @@
         }
       }
     },
-    {
-      "git": [
-        "add",
-        "."
-      ]
-    },
-    {
-      "git": [
-        "commit",
-        "-m",
-        "Add synthetic files"
-      ]
-    }
+    {"git": ["add", "."]},
+    {"git": ["commit", "-m", "Add synthetic files"]}
   ]
 }

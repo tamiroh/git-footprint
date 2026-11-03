@@ -1,8 +1,5 @@
 {
-  "args": [
-    "--fail-on",
-    "warn"
-  ],
+  "args": ["--fail-on", "warn"],
   "exit": 1,
   "steps": [
     {
@@ -22,42 +19,11 @@
         }
       }
     },
-    {
-      "git": [
-        "add",
-        "."
-      ]
-    },
-    {
-      "git": [
-        "commit",
-        "-m",
-        "Add synthetic files"
-      ]
-    },
-    {
-      "git": [
-        "tag",
-        "-a",
-        "v1.0.0",
-        "-m",
-        "Synthetic release"
-      ]
-    },
-    {
-      "git": [
-        "rm",
-        "document.docx"
-      ]
-    },
-    {
-      "git": [
-        "commit",
-        "--author=Fixture Contributor <contributor@example.com>",
-        "-m",
-        "Remove document\n\nCo-authored-by: Fixture Reviewer <reviewer@example.com>"
-      ]
-    },
+    {"git": ["add", "."]},
+    {"git": ["commit", "-m", "Add synthetic files"]},
+    {"git": ["tag", "-a", "v1.0.0", "-m", "Synthetic release"]},
+    {"git": ["rm", "document.docx"]},
+    {"git": ["commit", "--author=Fixture Contributor <contributor@example.com>", "-m", "Remove document\n\nCo-authored-by: Fixture Reviewer <reviewer@example.com>"]},
     {
       "write": {
         "path": "document.docx",

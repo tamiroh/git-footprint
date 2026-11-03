@@ -1,8 +1,5 @@
 {
-  "args": [
-    "--fail-on",
-    "info"
-  ],
+  "args": ["--fail-on", "info"],
   "exit": 0,
   "steps": [
     {
@@ -11,18 +8,7 @@
         "content": "Synthetic CLI test repository.\n"
       }
     },
-    {
-      "git": [
-        "add",
-        "."
-      ]
-    },
-    {
-      "git": [
-        "commit",
-        "-m",
-        "Add synthetic files"
-      ]
-    }
+    {"git": ["add", "."]},
+    {"git": ["commit", "-m", "Add synthetic files"]}
   ]
 }
