@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/tamiroh/git-footprint/internal/engine"
@@ -23,8 +24,6 @@ import (
 	"github.com/tamiroh/git-footprint/internal/rules/video"
 	"github.com/tamiroh/git-footprint/internal/source"
 )
-
-const version = "0.1.2"
 
 // Run executes the command and returns its exit code.
 func Run(args []string) int {
@@ -48,6 +47,10 @@ func Run(args []string) int {
 	}
 
 	if *showVersion {
+		version := "(devel)"
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+			version = info.Main.Version
+		}
 		fmt.Println("git-footprint", version)
 		return 0
 	}
