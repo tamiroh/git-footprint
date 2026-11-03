@@ -36,7 +36,10 @@ func Run(args []string) int {
 	noPager := flags.Bool("no-pager", false, "do not page output through $PAGER")
 	failOn := flags.String("fail-on", "none", "exit 1 if findings reach this level: none, info, warn")
 	showVersion := flags.Bool("version", false, "print version and exit")
-	flags.Usage = usage
+	flags.Usage = func() {
+		_, _ = fmt.Fprintln(flags.Output(), "Usage: git footprint [options] [REPO]")
+		flags.PrintDefaults()
+	}
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -148,28 +151,4 @@ func startPager(enabled bool) (io.Writer, func()) {
 		_ = w.Close()
 		_ = cmd.Wait()
 	}
-}
-
-func usage() {
-	fmt.Fprint(os.Stderr, `git footprint [--no-color] [--color] [--no-pager] [--allow-identity 'Name <email>']... [--fail-on LEVEL] [--version] [REPO]
-
-Check what your git history reveals about you before you make a repository
-public. Per contributor: every identity in the history (authors, committers,
-taggers and people named in commit trailers), the embedded metadata
-(location, creator, camera, software, creation date) of any image, video, PDF,
-Office document or font they committed, and the file names a committed .DS_Store
-leaks.
-
-REPO defaults to the current directory.
-
---allow-identity 'Name <email>' may be repeated. When specified, every author,
-committer, tagger or trailer identity outside the list is a warning, including
-you and bots.
-Names match exactly; email matching ignores case. Without this option,
-identities are only listed. File metadata warnings are unaffected.
-
---fail-on LEVEL exits 1 when findings reach LEVEL (none, info, warn); "warn"
-covers any finding that reveals a location or creator, or a committed
-.DS_Store, or an identity outside an explicit allow list. Setup errors always exit 2.
-`)
 }
