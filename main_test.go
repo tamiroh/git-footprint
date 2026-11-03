@@ -27,7 +27,7 @@ func TestCLI(t *testing.T) {
 		t.Fatalf("build CLI: %v\n%s", err, out)
 	}
 
-	paths, err := filepath.Glob("testdata/cli/*/case.json")
+	paths, err := filepath.Glob("e2e/*/case.json")
 	if err != nil {
 		t.Fatal(err)
 	}
