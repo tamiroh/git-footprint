@@ -48,3 +48,5 @@ jobs:
           go run . --no-color --no-pager --fail-on info
           --allow-identity 'tamiroh <tamiroh71@gmail.com>'
           --allow-identity 'GitHub <noreply@github.com>'
+          --allow-identity 'dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>'
+          --allow-identity 'dependabot[bot] <support@github.com>'
