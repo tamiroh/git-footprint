@@ -1,0 +1,28 @@
+exit: 0
+stdout:
+1 commit across 1 identity
+
+YOUR IDENTITIES
+───────────────
+
+● Fixture Author <author@example.com>  (you)
+    authored 1 · committed 1  ·  2020-01-02
+
+OTHER CONTRIBUTORS
+──────────────────
+
+(none)
+
+NOT TIED TO A LISTED IDENTITY
+─────────────────────────────
+
+(none)
+
+SUMMARY
+───────
+
+        no committed file carries embedded metadata
+        no committed .DS_Store
+        no committed archive names its owner
+[INFO]  1 file not read (unsupported format)  ·  .bin ×1
+stderr:

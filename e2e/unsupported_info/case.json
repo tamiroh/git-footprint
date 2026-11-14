@@ -1,0 +1,28 @@
+{
+  "args": [
+    "--fail-on",
+    "info"
+  ],
+  "exit": 1,
+  "steps": [
+    {
+      "write": {
+        "path": "unknown.bin",
+        "content": "unknown\u0000format"
+      }
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-m",
+        "Add unsupported file"
+      ]
+    }
+  ]
+}

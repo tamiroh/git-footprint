@@ -24,6 +24,13 @@ type Result struct {
 }
 
 func (r Result) Worst() (found bool, level rule.Level) {
+	for _, n := range r.Unclaimed {
+		if n > 0 {
+			found = true
+			level = rule.Info
+			break
+		}
+	}
 	for _, f := range r.Findings {
 		found = true
 		if l := f.Level(); l > level {
